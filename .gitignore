@@ -1,0 +1,50 @@
+.DS_Store
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.coverage
+htmlcov/
+build/
+dist/
+*.egg-info/
+.venv/
+__pycache__/
+.env
+data/
+*.mp4
+*.MOV
+*.pth
+*.pt
+*.ckpt
+.ipynb_checkpoints/
+# Generated/local inputs and outputs
+data/samples/*.mp4
+data/samples/*.avi
+data/samples/*.mov
+reports/
+models/*
+!models/.gitkeep
+evaluation/ml/artifacts/
+evaluation/ml/embedding_cache/
+data/ml/*.jsonl
+
+# Milestone 3A locally generated media and COLMAP binary artifacts.  Manifests,
+# objective CSVs, JSON status records, logs, and documentation remain trackable.
+evaluation/reconstruction/*/images/
+evaluation/reconstruction/*/colmap/database.db
+evaluation/reconstruction/*/colmap/sparse_*/
+evaluation/reconstruction/*/colmap/model_text_candidates/
+evaluation/reconstruction/*/colmap/*.ply
+
+# Optional datasets and experiment artifacts
+data/co3d/
+work/
+*.zip
+*.tar
+*.tar.gz
+*.jgz
+*.pt
+*.pth
+*.onnx
+

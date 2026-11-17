@@ -1,0 +1,5 @@
+filename,reconstruction_status,reviewer,review_date,object_completeness_0_to_5,geometric_plausibility_0_to_5,missing_regions,artifacts,actual_usability_yes_no_uncertain,notes
+IMG_3913.MOV,infrastructure_unavailable,,,,,,,,
+IMG_3914.MOV,not_run_pilot_did_not_succeed,,,,,,,,
+IMG_3915.MOV,not_run_pilot_did_not_succeed,,,,,,,,
+orbit_good.mp4,not_run_pilot_did_not_succeed,,,,,,,,

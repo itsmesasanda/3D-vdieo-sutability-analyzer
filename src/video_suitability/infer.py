@@ -1,0 +1,256 @@
+"""End-to-end heuristic inference API and command-line interface."""
+
+from __future__ import annotations
+
+import argparse
+import json
+import sys
+from pathlib import Path
+from typing import Any, Dict, Optional, Sequence
+
+from . import __version__
+from .config import AnalysisConfig
+from .geometry import analyze_geometry
+from .quality import analyze_quality
+from .scoring import (
+    build_problem_segments,
+    recommendations_for,
+    score_analysis_v1,
+    score_analysis_v2,
+)
+from .video import VideoError, sample_video
+
+
+ANALYSIS_METHOD = {
+    "name": "explainable_cpu_heuristic",
+    "version": "2.1",
+    "trained_model_used": False,
+    "reconstruction_run": False,
+    "components": [
+        "uniform whole-video frame sampling",
+        "exposure/contrast/blur/texture measurements",
+        "ORB correspondence with RANSAC geometric verification",
+        "timestamp-aware optical flow and track retention",
+        "overlap, motion regularity, and cautious rotation/parallax proxies",
+    ],
+}
+
+
+def analyze_video(
+    video_path: str,
+    config: Optional[AnalysisConfig] = None,
+) -> Dict[str, Any]:
+    """Analyze a local video and return a JSON-serializable heuristic report."""
+
+    cfg = config or AnalysisConfig()
+    cfg.validate()
+    sampled = sample_video(Path(video_path), cfg)
+    quality = analyze_quality(
+        sampled.frames, sampled.frame_indices, sampled.timestamps_seconds
+    )
+    geometry = analyze_geometry(
+        sampled.frames,
+        sampled.frame_indices,
+        sampled.timestamps_seconds,
+        cfg,
+    )
+    baseline_v1 = score_analysis_v1(
+        quality, geometry, len(sampled.frames), cfg
+    )
+    score = score_analysis_v2(
+        quality, geometry, sampled.metadata, len(sampled.frames), cfg
+    )
+    problem_segments = build_problem_segments(
+        quality["frames"], geometry["pairs"]
+    )
+    recommendations = recommendations_for(problem_segments)
+
+    warnings = [
+        "The overall score is a declared heuristic, not an ML prediction or calibrated probability.",
+        "No 3D reconstruction was run; this tool estimates input suitability only.",
+        "Motion and parallax measurements are image-space proxies and cannot prove camera translation or a static subject.",
+        "No trained and independently validated model artifact is configured, so no ML score is reported.",
+    ]
+    warnings.extend(sampled.warnings)
+    geometry_summary = geometry["summary"]
+    if float(geometry_summary["valid_geometry_pair_fraction"]) < 0.35:
+        warnings.append(
+            "Geometric evidence is sparse; the score relies more heavily on image-quality measurements."
+        )
+    if float(geometry_summary["rotation_or_planar_pair_fraction"]) >= 0.50:
+        warnings.append(
+            "Homography-dominant motion can indicate a planar subject or rotation-dominant capture; capture lateral viewpoints for stronger depth evidence."
+        )
+    if float(geometry_summary["low_overlap_pair_fraction"]) >= 0.50:
+        warnings.append(
+            "At least half of sampled transitions have low overlap; feature-rich individual frames may still fail to maintain reconstruction tracks."
+        )
+    if float(geometry_summary["irregular_camera_motion_pair_fraction"]) >= 0.40:
+        warnings.append(
+            "Timestamp-normalized optical flow shows frequent direction or speed discontinuities consistent with unstable camera motion."
+        )
+    if float(
+        geometry_summary["motion_sampling_gap_too_wide_pair_fraction"]
+    ) > 0:
+        warnings.append(
+            "Some uniform sample gaps exceed 0.30 seconds; high-frequency shake and LK track retention are unresolved there, so ORB continuity is used as a fallback."
+        )
+    duration = sampled.metadata.get("duration_seconds")
+    if duration is not None and duration > 30 and len(sampled.frames) <= cfg.max_samples:
+        warnings.append(
+            f"A {duration:.1f}s video was represented by {len(sampled.frames)} samples; short defects between samples may be missed."
+        )
+    if duration is not None and duration < 3.0:
+        warnings.append(
+            f"The accessible file is only {duration:.2f}s long; whole-object viewpoint coverage is uncertain even when frame correspondences are strong."
+        )
+    source_width = sampled.metadata.get("source_width")
+    source_height = sampled.metadata.get("source_height")
+    if source_width and source_height and min(source_width, source_height) < 480:
+        warnings.append(
+            "The source has a short side below 480 pixels. Fine surface detail may be limited, but resolution alone did not trigger a score cap."
+        )
+
+    report: Dict[str, Any] = {
+        "schema_version": "1.0",
+        "analysis_method": ANALYSIS_METHOD,
+        "scoring_version": score["scoring_version"],
+        "scoring_revision": score["scoring_revision"],
+        "overall_score": score["overall_score"],
+        "suitability_label": score["suitability_label"],
+        "score_interpretation": {
+            "likely_suitable_at_or_above": cfg.good_score_threshold,
+            "review_recommended_at_or_above": cfg.review_score_threshold,
+            "thresholds_are_calibrated": False,
+        },
+        "confidence_or_uncertainty": score["confidence_or_uncertainty"],
+        "subscores": score["subscores"],
+        "subscore_details": score["subscore_details"],
+        "score_caps_applied": score["score_caps_applied"],
+        "critical_failure_gate_evaluations": score[
+            "critical_failure_gate_evaluations"
+        ],
+        "geometry_reliability": score["geometry_reliability"],
+        "baseline_v1": {
+            "scoring_version": "heuristic_v1",
+            "overall_score": baseline_v1["overall_score"],
+            "suitability_label": baseline_v1["suitability_label"],
+            "subscores": baseline_v1["subscores"],
+            "score_caps_applied": baseline_v1["score_caps_applied"],
+        },
+        "score_comparison": {
+            "baseline_v1_score": baseline_v1["overall_score"],
+            "heuristic_v2_score": score["overall_score"],
+            "change_v2_minus_v1": round(
+                score["overall_score"] - baseline_v1["overall_score"], 2
+            ),
+        },
+        "raw_metrics": {
+            "video": sampled.metadata,
+            "source_media_diagnostics": {
+                "source_width": source_width,
+                "source_height": source_height,
+                "source_megapixels": sampled.metadata.get("source_megapixels"),
+                "codec": sampled.metadata.get("codec"),
+                "estimated_bitrate_mbps": sampled.metadata.get(
+                    "estimated_bitrate_mbps"
+                ),
+                "compressed_bits_per_pixel_per_frame": sampled.metadata.get(
+                    "compressed_bits_per_pixel_per_frame"
+                ),
+                "analysis_linear_scale_from_source": sampled.metadata.get(
+                    "analysis_linear_scale_from_source"
+                ),
+                "median_laplacian_variance_at_analysis_resolution": quality[
+                    "summary"
+                ]["median_laplacian_variance"],
+                "blurry_frame_fraction": quality["summary"][
+                    "blurry_frame_fraction"
+                ],
+                "resolution_alone_triggers_failure": False,
+            },
+            "quality_summary": quality["summary"],
+            "geometry_summary": geometry["summary"],
+            "sampled_frame_quality": quality["frames"],
+            "sampled_frame_features": geometry["frames"],
+            "sampled_pair_geometry": geometry["pairs"],
+        },
+        "problem_segments": problem_segments,
+        "recommendations": recommendations,
+        "warnings": list(dict.fromkeys(warnings)),
+    }
+    return report
+
+
+def write_report(
+    report: Dict[str, Any], output_path: Path, indent: Optional[int] = 2
+) -> None:
+    """Write a report as UTF-8 JSON, creating only the requested parent directory."""
+
+    path = Path(output_path).expanduser()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(
+        json.dumps(report, indent=indent, sort_keys=False, allow_nan=False) + "\n",
+        encoding="utf-8",
+    )
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="video-suitability",
+        description=(
+            "Score a mostly static, object-centric video for likely 3D reconstruction suitability "
+            "using an explainable CPU heuristic."
+        ),
+    )
+    parser.add_argument("--video", required=True, help="Path to a local MP4/MOV/AVI/etc. video")
+    parser.add_argument("--out", help="JSON output path; omit to print JSON to stdout")
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=AnalysisConfig.max_samples,
+        help="Uniformly sampled frames to analyze (2-120; default: 32)",
+    )
+    parser.add_argument(
+        "--max-side",
+        type=int,
+        default=AnalysisConfig.max_analysis_side,
+        help="Maximum analysis-frame side in pixels (160-1920; default: 640)",
+    )
+    parser.add_argument("--compact", action="store_true", help="Write compact JSON")
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    return parser
+
+
+def main(argv: Optional[Sequence[str]] = None) -> int:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    try:
+        output_path = Path(args.out).expanduser().resolve() if args.out else None
+        input_path = Path(args.video).expanduser().resolve()
+        if output_path is not None and output_path == input_path:
+            raise ValueError("--out must not overwrite the input video")
+        config = AnalysisConfig(
+            max_samples=args.max_samples,
+            max_analysis_side=args.max_side,
+        )
+        report = analyze_video(args.video, config=config)
+        indent = None if args.compact else 2
+        if output_path is not None:
+            write_report(report, output_path, indent=indent)
+            print(
+                f"Wrote {args.out} | heuristic score {report['overall_score']:.2f}/100 "
+                f"| {report['suitability_label']}",
+                file=sys.stderr,
+            )
+        else:
+            print(json.dumps(report, indent=indent, allow_nan=False))
+        return 0
+    except (VideoError, ValueError, OSError) as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
+
+
+if __name__ == "__main__":  # pragma: no cover
+    raise SystemExit(main())
+

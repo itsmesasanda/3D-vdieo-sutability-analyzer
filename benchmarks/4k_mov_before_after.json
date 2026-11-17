@@ -1,0 +1,47 @@
+{
+  "benchmark_date": "2026-11-17",
+  "host": "MacBook Air, Apple M3, 8 CPU cores, 8 GiB RAM, macOS 14.5",
+  "video": {
+    "filename": "IMG_3913.MOV",
+    "codec": "HEVC",
+    "resolution": "2160x3840",
+    "fps": 59.993982549,
+    "frame_count": 997,
+    "duration_seconds": 16.618333,
+    "sha256": "0c9ca3a9b4ebc77ce0f2bf4a5f496855c877a6beeb3b80e3b59957cd2b27a42a"
+  },
+  "configuration": {
+    "max_samples": 32,
+    "max_analysis_side": 640,
+    "uniform_sample_indices": [0, 32, 64, 96, 129, 161, 193, 225, 257, 289, 321, 353, 386, 418, 450, 482, 514, 546, 578, 610, 643, 675, 707, 739, 771, 803, 835, 867, 900, 932, 964, 996]
+  },
+  "before_random_seek": {
+    "isolated_sampling_seconds": [27.263555, 26.193902],
+    "isolated_sampling_mean_seconds": 26.728729,
+    "end_to_end_seconds": [29.478253, 25.558009],
+    "end_to_end_mean_seconds": 27.518131
+  },
+  "after_single_forward_pass": {
+    "end_to_end_seconds": [15.103085, 13.782143],
+    "end_to_end_mean_seconds": 14.442614,
+    "speedup_factor": 1.905343,
+    "runtime_reduction_percent": 47.516008
+  },
+  "direct_decode_equivalence_check": {
+    "random_seek_seconds": 22.267853,
+    "single_forward_pass_seconds": 12.832664,
+    "requested_indices_equal": true,
+    "all_32_resized_frames_pixel_identical": true
+  },
+  "semantic_equivalence_against_preserved_v2_report": {
+    "overall_score_equal": true,
+    "subscores_equal": true,
+    "quality_summary_equal": true,
+    "geometry_summary_equal": true,
+    "all_sampled_frame_quality_equal": true,
+    "all_sampled_pair_geometry_equal": true,
+    "problem_segments_equal": true,
+    "overall_score": 78.54
+  },
+  "limitations": "Two-run local engineering benchmark, not a cross-platform performance guarantee. OS cache state and codec builds can affect timing. Long videos with sparse sample spacing retain random seeking."
+}

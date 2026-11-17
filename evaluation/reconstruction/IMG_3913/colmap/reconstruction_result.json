@@ -1,0 +1,18 @@
+{
+  "analysis_type": "sparse_colmap_reconstruction",
+  "camera_model": "OPENCV",
+  "colmap_executable_requested": "colmap",
+  "commands": [],
+  "dense_reconstruction_run": false,
+  "failure_reason": "COLMAP executable was not found: colmap",
+  "failure_stage": "environment",
+  "images_directory": "/Users/sasanda/Documents/GitHub/3D-vdieo-sutability-analyzer/evaluation/reconstruction/IMG_3913/images",
+  "mapper_runtime_seconds": null,
+  "objective_metrics": null,
+  "retry_exhaustive": true,
+  "schema_version": "1.0",
+  "sequential_overlap": 10,
+  "status": "infrastructure_unavailable",
+  "total_input_image_count": 35,
+  "total_runtime_seconds": 0.0
+}
