@@ -16,6 +16,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "problem_segments",
     "recommendations",
     "warnings",
+    "viewpoint_diversity",
 }
 
 

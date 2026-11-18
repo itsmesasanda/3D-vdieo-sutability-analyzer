@@ -1,0 +1,70 @@
+{
+  "scope": "Local CPU timing. Feature-only mode does not imply a trained prediction or real-world model accuracy.",
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "video": "data/samples/real_tests/IMG_3913.MOV",
+  "source_sha256_before": "0c9ca3a9b4ebc77ce0f2bf4a5f496855c877a6beeb3b80e3b59957cd2b27a42a",
+  "source_sha256_after": "0c9ca3a9b4ebc77ce0f2bf4a5f496855c877a6beeb3b80e3b59957cd2b27a42a",
+  "source_unchanged": true,
+  "run_count": 3,
+  "mean_wall_seconds": 12.873245,
+  "mean_cpu_seconds": 59.008896,
+  "runs": [
+    {
+      "run": 1,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 13.098215,
+      "cpu_seconds": 58.866331,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 123.16619303385417,
+        "mean_contrast": 56.597695638064835,
+        "mean_sharpness": 1233.5216703877554,
+        "mean_orb_keypoints": 750.875,
+        "mean_frame_difference": 54.15833689371745,
+        "mean_orb_good_matches": 30.0,
+        "mean_orb_match_ratio": 0.04136547592762581,
+        "mean_orb_ransac_inlier_ratio": 0.34685787128911605
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    },
+    {
+      "run": 2,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 12.436417,
+      "cpu_seconds": 58.309535,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 123.16619303385417,
+        "mean_contrast": 56.597695638064835,
+        "mean_sharpness": 1233.5216703877554,
+        "mean_orb_keypoints": 750.875,
+        "mean_frame_difference": 54.15833689371745,
+        "mean_orb_good_matches": 30.0,
+        "mean_orb_match_ratio": 0.04136547592762581,
+        "mean_orb_ransac_inlier_ratio": 0.34685787128911605
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    },
+    {
+      "run": 3,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 13.085103,
+      "cpu_seconds": 59.850822,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 123.16619303385417,
+        "mean_contrast": 56.597695638064835,
+        "mean_sharpness": 1233.5216703877554,
+        "mean_orb_keypoints": 750.875,
+        "mean_frame_difference": 54.15833689371745,
+        "mean_orb_good_matches": 30.0,
+        "mean_orb_match_ratio": 0.04136547592762581,
+        "mean_orb_ransac_inlier_ratio": 0.34685787128911605
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    }
+  ]
+}

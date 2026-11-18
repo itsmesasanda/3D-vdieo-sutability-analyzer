@@ -2,6 +2,24 @@
 
 This repository contains a CPU-runnable MVP that analyzes a video of a mostly static physical object filmed from multiple viewpoints. It produces an explicitly **heuristic** 0–100 suitability score, five subscores, timestamped problems, capture recommendations, raw evidence, and uncertainty warnings.
 
+It also reports a separate **Estimated Viewpoint Diversity** category (`Low`,
+`Moderate`, `High`, or `Unknown`). This category uses bounded multi-gap ORB/RANSAC
+evidence and does not change the heuristic score or optional Random Forest result.
+An optional middle-frame object box focuses this category on tracked object features
+while preserving background matches as separate diagnostics.
+
+Streamlit also has a separate, parity-gated slot for a Random Forest prediction of
+COLMAP registered-image percentage. No compatible model artifact or eight-feature
+training export is currently present, so this result explicitly reports
+`unavailable`; it never substitutes either heuristic result.
+
+The final-label preparation path is also available without training. It merges
+multiple COLMAP label batches, verifies the exact 60-image inputs and provenance,
+extracts fresh production-compatible features, creates physical-source grouped CV
+folds and a predeclared independent holdout, and packages loader-compatible parity
+examples. Infrastructure failures are excluded rather than converted to zero. See
+[the compatibility workflow](docs/registration_training_compatibility.md).
+
 The production heuristic does **not** reconstruct a 3D model, upload the video, or
 claim an ML prediction. A separate Milestone 3A experiment can run an installed
 COLMAP executable for reconstruction-grounded validation; it never changes the
@@ -19,6 +37,12 @@ python -m pip install -e ".[dev]"
 ```
 
 No CO3D data, CUDA installation, GPU, paid API, or network service is needed after installation.
+
+For Streamlit deployment with a trusted Random Forest artifact:
+
+```bash
+python -m pip install -e ".[app-ml]"
+```
 
 ## Run the CLI
 
@@ -44,6 +68,39 @@ video-suitability \
   --max-side 640
 ```
 
+Optionally focus only the separate viewpoint category on a normalized middle-frame
+object box and include stage timings:
+
+```bash
+video-suitability --video capture.mov --out report.json \
+  --object-bbox 0.25,0.10,0.50,0.80 --profile
+```
+
+The box never changes the main suitability score. If affine-RANSAC tracking cannot
+retain it across at least 70% of samples, the viewpoint result is `Unknown`.
+
+After a compatible final Random Forest artifact is installed, the CLI can attach
+its independent registration prediction:
+
+```bash
+video-suitability --video capture.mp4 --out report.json \
+  --registration-artifact /absolute/path/to/versioned_artifact
+```
+
+If calibrated pinhole intrinsics are known, they can be supplied for scale-free
+relative-pose and rotation-compensated parallax indicators. Values are in pixels;
+give the image size on which they were calibrated so they can be scaled to analysis
+resolution:
+
+```bash
+video-suitability --video capture.mp4 --out report.json \
+  --camera-fx 1220 --camera-fy 1215 --camera-cx 960 --camera-cy 540 \
+  --intrinsics-width 1920 --intrinsics-height 1080
+```
+
+The recovered translation is a unit direction only. Monocular two-view geometry
+does not recover metric scale.
+
 If `--out` is omitted, JSON is written to stdout. Invalid/missing/undecodable videos return exit code 2 with a concise error on stderr.
 
 ## Report contract
@@ -64,6 +121,15 @@ The stable top-level fields are:
 - `warnings`: method limitations and degraded-analysis conditions.
 - `critical_failure_gate_evaluations`: every documented physical gate, whether it triggered, its evidence, and its maximum score.
 - `geometry_reliability`: visible overlap, track-retention, rotation/planar, and cadence uncertainty.
+- `viewpoint_diversity`: independent Low/Moderate/High/Unknown multi-gap result,
+  raw pair evidence, repeated-view intervals, optional intrinsic-calibrated motion
+  indicators, optional object tracking and separate background diagnostics,
+  decision explanations, limitations, and filming recommendations. It explicitly records
+  `affects_overall_score: false` and `colmap_run: false`.
+- `registration_prediction` in Streamlit or the opt-in CLI reports a separate
+  predicted COLMAP registered-image percentage only after artifact hashes, target
+  semantics, the exact eight-feature contract, and saved-training-example parity
+  all pass. It never affects either heuristic result and does not run COLMAP.
 
 The overall score uses fixed, declared weights:
 
@@ -82,6 +148,16 @@ V2 combines these using a weighted geometric mean so saturated appearance metric
 - Frames are sampled uniformly from the complete codec-declared frame range, not just from the beginning. Only downscaled samples are retained in memory.
 - Exposure, clipped pixels, contrast, Laplacian sharpness, gradient magnitude, and entropy are measured per frame.
 - ORB features are matched between adjacent sampled frames. Fundamental-matrix RANSAC is preferred; homography RANSAC is an explicit fallback.
+- The viewpoint module reuses those ORB features, adds a bounded set of quarter-gap,
+  half-gap, and endpoint pairs, and detects likely repeated views. A repeated endpoint
+  can suggest loop closure but is never presented as proof of a complete orbit.
+- With an optional object box, object-internal ORB matches propagate the box using
+  affine RANSAC; object and background feature caches are then evaluated separately.
+  Failed tracking or background-dominated evaluable pairs produce `Unknown`.
+- When camera intrinsics are supplied, essential-matrix RANSAC and `recoverPose`
+  provide relative rotation, translation direction (without scale), and a
+  rotation-compensated bearing-change indicator. Without intrinsics these fields are
+  explicitly unavailable.
 - Forward/backward Lucas–Kanade flow measures short-gap track retention and timestamp-normalized speed. Direction/speed discontinuities are used only when sample gaps are at most 0.30 seconds; otherwise shake is reported as unresolved and ORB continuity is the fallback.
 - Verified match count/ratio, spatial spread, overlap failures, descriptor ambiguity, motion regularity, and homography residuals feed cautious geometry and viewpoint proxies.
 - Source resolution, approximate bitrate/bits-per-pixel/frame, and sharpness at analysis resolution are reported. Low pixel resolution alone never triggers failure.
@@ -97,7 +173,9 @@ python scripts/generate_test_videos.py --out-dir data/samples
 This creates deterministic local MP4 fixtures (ignored by Git) for:
 
 - smooth multi-layer orbit;
+- front-only, quarter-orbit, and periodic full-orbit viewpoint scenarios;
 - stationary view and pure rotation;
+- low-texture and deliberately repetitive/ambiguous appearance;
 - shaky orbit and fast motion;
 - low resolution, blur, and severe darkness;
 - insufficient temporal coverage;
@@ -113,9 +191,13 @@ python -m pytest -q
 
 The suite covers uniform full-video sampling, decoder strategy, invalid inputs,
 blur/exposure metrics, stationary/pure-rotation/smooth/shaky/fast/low-resolution/
-short-coverage cases, v1 preservation, JSON serialization, problem timestamps,
+short-coverage cases, the five requested viewpoint-diversity scenarios plus
+low-texture/repetitive ambiguity gates, optional intrinsic
+scaling/relative-pose fields, repeated-view warnings, score-path isolation, v1
+preservation, JSON serialization, problem timestamps,
 score bounds, gates, report-to-timeline/frame integration, evaluation missing values,
-Streamlit rendering, and a real CLI subprocess writing JSON.
+object-box validation/tracking/background separation, Streamlit rendering, and a
+real CLI subprocess writing JSON.
 
 ## Batch validation of local real videos
 
@@ -139,6 +221,63 @@ Generated artifacts are:
 
 Reports and source videos are ignored by Git to avoid committing private or large media-derived artifacts.
 
+## Real-video viewpoint validation
+
+The viewpoint-specific validator reuses `analyze_video`, keeps both suitability
+scores untouched, records wall and process CPU time, and produces selected
+ORB/RANSAC match overlays with image-motion arrows:
+
+```bash
+python scripts/validate_viewpoint_real_videos.py \
+  --input-dir data/samples/real_tests \
+  --output-dir evaluation/viewpoint_real_validation \
+  --max-samples 32 --max-side 640 \
+  --max-diagnostic-pairs 3 \
+  --review-csv evaluation/real_video_human_review.csv
+```
+
+Outputs include `validation.csv`, a Markdown audit, per-video JSON, and JPEG
+diagnostics. Full JSON and images are ignored because they can reveal source-media
+details; the derived CSV and audit remain trackable. Green diagnostic lines are
+RANSAC-verified matches, gray lines are rejected ratio-test matches, and yellow
+arrows show image-space displacement—not proven camera translation.
+
+Optional intrinsics are supplied in a filename-keyed JSON object through
+`--intrinsics-json`. They are never guessed. The validator flags calibration as
+unverified because crop, stabilization, digital zoom, focal-length errors, and an
+incorrect principal point can bias essential-matrix results.
+
+The current audit found three real phone MOVs and one synthetic regression MP4 in
+the historical folder. All phone videos return `Unknown` because long-gap match
+sets are highly ambiguous across the patterned background, object, and furniture;
+the synthetic MP4 returns `Moderate`. These are diagnostic outcomes, not a
+real-world accuracy estimate. See
+[`evaluation/viewpoint_real_validation/REPORT.md`](evaluation/viewpoint_real_validation/REPORT.md).
+
+## Object-focused comparison validation
+
+The optional object-focused comparator consumes a CSV manifest with a representative
+box for each video and reports whole-frame versus object-only classifications,
+geometric evidence, tracking/background diagnostics, actual wall/CPU timings, and
+an explicit score-invariance check:
+
+```bash
+python scripts/compare_object_focused_validation.py \
+  --input-dir data/samples/real_tests \
+  --manifest evaluation/object_focused_validation/real_samples_manifest.csv \
+  --output-dir evaluation/object_focused_validation \
+  --max-samples 16 --max-side 480
+```
+
+A five-scenario same-physical-object protocol is prepared in
+`evaluation/object_focused_validation/physical_object_manifest_template.csv`; use
+`--require-complete-scenario-set` to enforce front-only, quarter-orbit, full-orbit,
+rotation-only, and blurred recordings with one object ID. The accessible three MOVs
+remain `Unknown`: each selected bottle region tracks only 1/16 samples and provides
+zero verified object-only long-gap matches. Their protocol labels and reconstruction
+outcomes are unavailable, so this is not a misclassification-rate or accuracy
+claim. See [the object-focused audit](docs/object_focused_validation.md).
+
 ## Python API
 
 ```python
@@ -161,6 +300,12 @@ provides:
 
 - a prominent 0–100 score, suitability band, v1 comparison, five explained
   components, and confidence/uncertainty banner;
+- a separate Estimated Viewpoint Diversity panel with Low/Moderate/High/Unknown,
+  evidence counts, limitations, and actionable capture guidance;
+- a separate predicted COLMAP image-registration percentage when a compatible
+  Random Forest is installed, or an explicit unavailable/incompatible reason;
+- optional middle-frame object selection, tracked object-only viewpoint evidence,
+  background-contamination diagnostics, and a clear Unknown reason on track loss;
 - a filterable timestamped problem timeline and representative problem frames;
 - what/where/why/action guidance for blur, exposure, overlap, tracking, shake,
   excessive motion, weak viewpoint change, and other detected issues;
@@ -168,8 +313,9 @@ provides:
 - a preserved v1/v2/human-feedback evaluation view that explicitly avoids accuracy
   claims and keeps missing human numbers missing.
 
-Uploaded content is analyzed locally. Streamlit session state caches an upload by
-SHA-256 so ordinary widget reruns do not repeat the analysis. See
+Uploaded content is analyzed locally. Analysis is button-triggered and session state
+caches an upload by SHA-256 plus object box so ordinary widget reruns do not repeat
+the work. Problem-frame rendering is deferred to a separate button. See
 [`docs/ui_mvp_audit.md`](docs/ui_mvp_audit.md) for verified behavior and limitations.
 
 ## 4K performance
@@ -182,6 +328,28 @@ and score, components, quality/geometry records, and problem segments matched th
 preserved report. See [`docs/performance_benchmark.md`](docs/performance_benchmark.md)
 and `scripts/benchmark_video_analysis.py`. These local two-run timings are not a
 cross-platform guarantee.
+
+The exact Streamlit payload path is benchmarked separately from diagnostic
+rendering by `scripts/benchmark_streamlit_upload.py`. On one local `IMG_3914.MOV`
+run, upload-to-result was 8.779 s wall for whole-frame and 9.152 s for object-focused
+analysis; rendering six diagnostics later added 4.405 s and 5.634 s. Decoding used
+6.860–7.127 s and dominated both runs. Raw stage/CPU timings are in
+`benchmarks/streamlit_upload_real_*.json`.
+
+## Random Forest registration prediction
+
+Set `VIDEO_SUITABILITY_RF_ARTIFACT_DIR` to a trusted versioned artifact or install
+it at `models/registration_rf_current`. Replacing that directory supports the final
+retrained model without changing UI or scoring code. The loader requires a hashed
+eight-feature OpenCV specification and at least one hashed training video whose
+locally re-extracted vector matches the value saved by Colab. Missing or
+incompatible artifacts never produce a prediction.
+
+The current repository has no saved model, exact historical eight-feature export,
+or parity examples. It therefore does not claim to reproduce that missing Colab run
+or report a learned value. The proposed final-retraining contract, exact formulas,
+deployment steps, tests, and CPU extraction benchmark are documented in
+[the Random Forest integration audit](docs/registration_random_forest.md).
 
 ## Sparse reconstruction validation (Milestone 3A)
 
@@ -259,15 +427,26 @@ src/video_suitability/
   video.py       validation, metadata, bounded whole-video sampling
   quality.py     exposure, contrast, blur and texture measurements
   geometry.py    ORB matching, RANSAC verification, overlap/motion proxies
+  viewpoint.py   independent multi-gap viewpoint-diversity evidence and category
+  object_focus.py  optional box tracking, object/background feature separation
   scoring.py     declared heuristic, uncertainty, segments, recommendations
   presentation.py  tested UI view models, guidance, evaluation join, problem frames
   infer.py       stable API and JSON CLI
   synthetic.py   deterministic MP4 fixtures
   datasets/co3d.py  validated local CO3D annotations/sequences
   ml/             schemas, splits, metrics, RF, ResNet cache, LSTM, artifacts
+    registration_features.py  strict eight-feature OpenCV contract
+    registration_rf.py  artifact hashes, parity gate, loading and prediction
 scripts/generate_test_videos.py
 scripts/benchmark_video_analysis.py
+scripts/benchmark_viewpoint_diversity.py
+scripts/benchmark_object_focused.py
+scripts/benchmark_streamlit_upload.py
+scripts/benchmark_registration_rf.py
+scripts/validate_viewpoint_real_videos.py
+scripts/compare_object_focused_validation.py
 scripts/ml/                        dataset, training, Colab notebook tools
+  build_registration_training_data.py  merged-label audit and exact feature bundle
 scripts/reconstruction/        frame extraction, environment audit, sparse COLMAP runner
 notebooks/colmap_reconstruction_colab.ipynb
 notebooks/ml_training_colab.ipynb
@@ -276,6 +455,12 @@ docs/notebook_audit.md
 docs/scoring_v2_audit.md
 docs/ui_mvp_audit.md
 docs/performance_benchmark.md
+docs/viewpoint_diversity.md
+docs/object_focused_validation.md
+docs/registration_random_forest.md
+docs/registration_training_compatibility.md
+evaluation/viewpoint_real_validation/  derived real-video CSV and audit
+evaluation/object_focused_validation/  manifests and whole/object comparison
 evaluation/
 app.py
 reference/co3d_video_quality_assessment.ipynb
@@ -286,6 +471,13 @@ STATUS.md
 
 - The heuristic has not yet been calibrated against independent downstream reconstruction outcomes.
 - It cannot reliably separate object motion from camera motion or prove camera translation.
+- Estimated viewpoint diversity does not measure exact orbit angle, prove 360°
+  capture, or estimate the percentage of object surface recorded. Blur, low texture,
+  repetitive/symmetric appearance, sparse geometry, and rotation-dominant motion
+  intentionally produce `Unknown` when evidence is insufficient.
+- Object focus is a tracked rectangle, not semantic segmentation. A loose box can
+  retain background features; occlusion, specularity, blur, or large appearance
+  changes can break tracking and intentionally return `Unknown`.
 - Reflective, transparent, textureless, very small, or heavily occluded objects remain difficult.
 - Uniform sampling can miss short defects between samples, especially in long videos. Long gaps explicitly mark shake/LK retention as unresolved.
 - Four real captures have independent qualitative review, but only one has an approximate numerical score and none has a downstream reconstruction outcome.
@@ -295,6 +487,16 @@ STATUS.md
 - No supervised model has been trained on genuine reconstruction-quality labels;
   Milestone 4A provides label-gated infrastructure only. ML predictions remain
   unavailable until a hashed artifact records genuine target provenance.
+- The requested registration Random Forest and its historical eight-feature
+  preprocessing export are absent. The app refuses prediction until a final trusted
+  artifact passes saved-training-example parity; the template extractor is not
+  assumed equivalent to an undocumented earlier Colab procedure.
 
-See [the notebook audit](docs/notebook_audit.md), [the v2 scoring audit](docs/scoring_v2_audit.md), and [STATUS.md](STATUS.md) for actual executed commands and results.
+See [the viewpoint-diversity audit](docs/viewpoint_diversity.md),
+[the object-focused validation audit](docs/object_focused_validation.md),
+[the Random Forest integration audit](docs/registration_random_forest.md),
+[the training-data compatibility workflow](docs/registration_training_compatibility.md),
+[the notebook audit](docs/notebook_audit.md),
+[the v2 scoring audit](docs/scoring_v2_audit.md), and [STATUS.md](STATUS.md) for
+actual executed commands and results.
 

@@ -1,0 +1,188 @@
+{
+  "scope": "Controlled layered 2D regression fixtures; not physical-object or real-world accuracy validation.",
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "config": {
+    "max_samples": 16,
+    "max_analysis_side": 400,
+    "object_bbox": [
+      0.25,
+      0.1,
+      0.5,
+      0.8
+    ]
+  },
+  "all_expectations_matched": true,
+  "all_score_paths_unchanged": true,
+  "results": [
+    {
+      "scenario": "front_only",
+      "expected": {
+        "whole": "Low",
+        "object": "Low"
+      },
+      "matched_expectation": true,
+      "classification_changed": false,
+      "whole": {
+        "category": "Low",
+        "evidence_status": "sufficient",
+        "primary_reason": "Most nearby or temporally separated evidence repeats nearly the same view.",
+        "median_separated_verified_matches": 1268.0,
+        "long_gap_parallax_proxy_fraction": 0.0,
+        "long_gap_repeated_view_fraction": 1.0,
+        "strict_descriptor_ambiguity_fraction": 0.066253,
+        "wall_seconds": 3.93214,
+        "cpu_seconds": 2.111143
+      },
+      "object_focused": {
+        "category": "Low",
+        "evidence_status": "sufficient",
+        "primary_reason": "Most nearby or temporally separated evidence repeats nearly the same view.",
+        "median_separated_verified_matches": 1143.0,
+        "long_gap_parallax_proxy_fraction": 0.0,
+        "long_gap_repeated_view_fraction": 1.0,
+        "strict_descriptor_ambiguity_fraction": 0.05416,
+        "wall_seconds": 5.027871,
+        "cpu_seconds": 3.151707,
+        "tracked_sample_fraction": 1.0,
+        "background_dominated_pair_fraction": 0.0
+      },
+      "score_paths_unchanged": true
+    },
+    {
+      "scenario": "quarter_orbit",
+      "expected": {
+        "whole": "Moderate",
+        "object": "Moderate"
+      },
+      "matched_expectation": true,
+      "classification_changed": false,
+      "whole": {
+        "category": "Moderate",
+        "evidence_status": "sufficient",
+        "primary_reason": "Distinct object views and some parallax-like support are present, but evidence does not meet the High rule.",
+        "median_separated_verified_matches": 561.0,
+        "long_gap_parallax_proxy_fraction": 0.923077,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.321379,
+        "wall_seconds": 3.648086,
+        "cpu_seconds": 2.040778
+      },
+      "object_focused": {
+        "category": "Moderate",
+        "evidence_status": "sufficient",
+        "primary_reason": "Distinct object views and some parallax-like support are present, but evidence does not meet the High rule.",
+        "median_separated_verified_matches": 524.0,
+        "long_gap_parallax_proxy_fraction": 1.0,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.31225,
+        "wall_seconds": 5.142417,
+        "cpu_seconds": 3.492458,
+        "tracked_sample_fraction": 1.0,
+        "background_dominated_pair_fraction": 0.0
+      },
+      "score_paths_unchanged": true
+    },
+    {
+      "scenario": "full_orbit",
+      "expected": {
+        "whole": "High",
+        "object": "Moderate"
+      },
+      "matched_expectation": true,
+      "classification_changed": true,
+      "whole": {
+        "category": "High",
+        "evidence_status": "sufficient",
+        "primary_reason": "Many long-gap pairs show substantial view change with non-planar parallax-like support.",
+        "median_separated_verified_matches": 426.0,
+        "long_gap_parallax_proxy_fraction": 0.923077,
+        "long_gap_repeated_view_fraction": 0.076923,
+        "strict_descriptor_ambiguity_fraction": 0.42633,
+        "wall_seconds": 2.751614,
+        "cpu_seconds": 2.126587
+      },
+      "object_focused": {
+        "category": "Moderate",
+        "evidence_status": "sufficient",
+        "primary_reason": "Distinct object views and some parallax-like support are present, but evidence does not meet the High rule.",
+        "median_separated_verified_matches": 432.0,
+        "long_gap_parallax_proxy_fraction": 0.333333,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.374582,
+        "wall_seconds": 4.21496,
+        "cpu_seconds": 3.443608,
+        "tracked_sample_fraction": 0.9375,
+        "background_dominated_pair_fraction": 0.0
+      },
+      "score_paths_unchanged": true
+    },
+    {
+      "scenario": "pure_rotation",
+      "expected": {
+        "whole": "Unknown",
+        "object": "Unknown"
+      },
+      "matched_expectation": true,
+      "classification_changed": false,
+      "whole": {
+        "category": "Unknown",
+        "evidence_status": "insufficient",
+        "primary_reason": "Most changed pairs are explained by a global homography; rotation-only or planar motion cannot be separated reliably from useful translation.",
+        "median_separated_verified_matches": 827.0,
+        "long_gap_parallax_proxy_fraction": 0.0,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.235901,
+        "wall_seconds": 5.851167,
+        "cpu_seconds": 1.772603
+      },
+      "object_focused": {
+        "category": "Unknown",
+        "evidence_status": "insufficient",
+        "primary_reason": "Most changed pairs are explained by a global homography; rotation-only or planar motion cannot be separated reliably from useful translation.",
+        "median_separated_verified_matches": 769.0,
+        "long_gap_parallax_proxy_fraction": 0.0,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.200309,
+        "wall_seconds": 3.526223,
+        "cpu_seconds": 2.679654,
+        "tracked_sample_fraction": 1.0,
+        "background_dominated_pair_fraction": 0.0
+      },
+      "score_paths_unchanged": true
+    },
+    {
+      "scenario": "blurry",
+      "expected": {
+        "whole": "Unknown",
+        "object": "Unknown"
+      },
+      "matched_expectation": true,
+      "classification_changed": false,
+      "whole": {
+        "category": "Unknown",
+        "evidence_status": "insufficient",
+        "primary_reason": "Most sampled frames are blurry, so correspondences are not trustworthy.",
+        "median_separated_verified_matches": 29.0,
+        "long_gap_parallax_proxy_fraction": 1.0,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.254237,
+        "wall_seconds": 0.338617,
+        "cpu_seconds": 0.527843
+      },
+      "object_focused": {
+        "category": "Unknown",
+        "evidence_status": "insufficient",
+        "primary_reason": "Most sampled frames are blurry, so correspondences are not trustworthy.",
+        "median_separated_verified_matches": 29.0,
+        "long_gap_parallax_proxy_fraction": 1.0,
+        "long_gap_repeated_view_fraction": 0.0,
+        "strict_descriptor_ambiguity_fraction": 0.25,
+        "wall_seconds": 0.58474,
+        "cpu_seconds": 0.892473,
+        "tracked_sample_fraction": 1.0,
+        "background_dominated_pair_fraction": 0.0
+      },
+      "score_paths_unchanged": true
+    }
+  ]
+}

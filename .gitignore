@@ -29,6 +29,12 @@ evaluation/ml/artifacts/
 evaluation/ml/embedding_cache/
 data/ml/*.jsonl
 
+# Local real-video viewpoint diagnostics can reveal source imagery. Keep the
+# derived CSV/Markdown audit trackable while excluding images and full reports.
+evaluation/viewpoint_real_validation/diagnostics/
+evaluation/viewpoint_real_validation/reports/
+evaluation/object_focused_validation/reports/
+
 # Milestone 3A locally generated media and COLMAP binary artifacts.  Manifests,
 # objective CSVs, JSON status records, logs, and documentation remain trackable.
 evaluation/reconstruction/*/images/

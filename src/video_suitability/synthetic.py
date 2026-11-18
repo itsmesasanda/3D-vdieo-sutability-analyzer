@@ -211,6 +211,125 @@ def make_pure_rotation_frames(
     return frames
 
 
+def make_viewpoint_sweep_frames(
+    sweep_degrees: float,
+    width: int = 480,
+    height: int = 360,
+    frame_count: int = 24,
+) -> List[np.ndarray]:
+    """Create a periodic, multi-depth 2D proxy for a controlled camera sweep.
+
+    This is a plumbing/regression fixture, not a physically rendered object or
+    reconstruction benchmark. A 360-degree sweep returns to the initial synthetic
+    view, while intermediate layers move at different rates to provide parallax-like
+    evidence. A 90-degree sweep covers only one quarter of the same periodic path.
+    """
+
+    cv2 = _cv2()
+    background, object_layer, object_mask = _build_layers(width, height)
+    center = (width / 2.0, height / 2.0)
+    angles = np.linspace(0.0, np.radians(float(sweep_degrees)), frame_count)
+    band_edges = np.linspace(0, width, 5).astype(int)
+    depth_shifts = (-18.0, -6.0, 8.0, 22.0)
+    frames: List[np.ndarray] = []
+    for angle in angles:
+        sine = float(np.sin(angle))
+        cosine = float(np.cos(angle))
+        layered = np.empty_like(background)
+        for band, shift in enumerate(depth_shifts):
+            matrix = cv2.getRotationMatrix2D(center, sine * (band - 1.5), 1.0)
+            matrix[0, 2] += sine * shift
+            matrix[1, 2] += (1.0 - cosine) * (band - 1.5) * 2.0
+            warped = cv2.warpAffine(
+                background,
+                matrix,
+                (width, height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_REFLECT,
+            )
+            start, end = band_edges[band], band_edges[band + 1]
+            layered[:, start:end] = warped[:, start:end]
+
+        object_matrix = cv2.getRotationMatrix2D(
+            center,
+            -sine * 10.0,
+            1.0 + (1.0 - cosine) * 0.035,
+        )
+        object_matrix[0, 2] += sine * 46.0
+        object_matrix[1, 2] += (1.0 - cosine) * 7.0
+        foreground = cv2.warpAffine(
+            object_layer,
+            object_matrix,
+            (width, height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        mask = cv2.warpAffine(
+            object_mask,
+            object_matrix,
+            (width, height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        alpha = mask.astype(np.float32)[..., None] / 255.0
+        frame = layered.astype(np.float32) * (1.0 - alpha) + foreground.astype(
+            np.float32
+        ) * alpha
+        frames.append(np.clip(frame, 0, 255).astype(np.uint8))
+    return frames
+
+
+def make_repetitive_ambiguous_frames(
+    width: int = 480, height: int = 360, frame_count: int = 24
+) -> List[np.ndarray]:
+    """Create sharp tiled/symmetric footage with deliberately ambiguous ORB matches."""
+
+    cv2 = _cv2()
+    tile = np.zeros((40, 40, 3), dtype=np.uint8)
+    for y in range(0, 40, 10):
+        for x in range(0, 40, 10):
+            tile[y : y + 10, x : x + 10] = (
+                220 if (x // 10 + y // 10) % 2 else 35
+            )
+    repeats_y = int(np.ceil(height / tile.shape[0]))
+    repeats_x = int(np.ceil(width / tile.shape[1]))
+    base = np.tile(tile, (repeats_y, repeats_x, 1))[:height, :width]
+    frames = []
+    for shift in np.linspace(-20.0, 20.0, frame_count):
+        matrix = np.float32([[1.0, 0.0, shift], [0.0, 1.0, 0.0]])
+        frames.append(
+            cv2.warpAffine(
+                base,
+                matrix,
+                (width, height),
+                flags=cv2.INTER_LINEAR,
+                borderMode=cv2.BORDER_WRAP,
+            )
+        )
+    return frames
+
+
+def make_low_texture_frames(
+    width: int = 480, height: int = 360, frame_count: int = 24
+) -> List[np.ndarray]:
+    """Create a smooth, nearly featureless centered-object fixture."""
+
+    cv2 = _cv2()
+    base = np.full((height, width, 3), (178, 182, 185), dtype=np.uint8)
+    cv2.ellipse(
+        base,
+        (width // 2, height // 2),
+        (max(30, width // 5), max(40, height // 3)),
+        0,
+        0,
+        360,
+        (158, 162, 165),
+        -1,
+        cv2.LINE_AA,
+    )
+    return [base.copy() for _ in range(frame_count)]
+
+
 def make_shaky_orbit_frames(
     width: int = 480,
     height: int = 360,
@@ -305,6 +424,12 @@ def generate_test_videos(
     smooth_orbit = make_smooth_parallax_orbit_frames(
         width=width, height=height, frame_count=frame_count
     )
+    quarter_orbit = make_viewpoint_sweep_frames(
+        90.0, width=width, height=height, frame_count=frame_count
+    )
+    full_orbit = make_viewpoint_sweep_frames(
+        360.0, width=width, height=height, frame_count=frame_count
+    )
     middle = smooth_orbit[len(smooth_orbit) // 2]
     low_resolution = [
         cv2.resize(frame, (160, 120), interpolation=cv2.INTER_AREA)
@@ -313,7 +438,18 @@ def generate_test_videos(
     variants = {
         "orbit_good": (orbit, fps),
         "smooth_orbit": (smooth_orbit, fps),
+        "quarter_orbit": (quarter_orbit, fps),
+        "full_orbit": (full_orbit, fps),
+        "front_only": ([middle.copy() for _ in range(frame_count)], fps),
         "stationary": ([middle.copy() for _ in range(frame_count)], fps),
+        "repetitive_ambiguous": (
+            make_repetitive_ambiguous_frames(width, height, frame_count),
+            fps,
+        ),
+        "low_texture": (
+            make_low_texture_frames(width, height, frame_count),
+            fps,
+        ),
         "pure_rotation": (
             make_pure_rotation_frames(width, height, frame_count),
             fps,

@@ -4,6 +4,12 @@ Milestone 4A prepares training infrastructure; it does not supply genuine labels
 claim model accuracy. The production heuristic v2.1, historical reports, sparse
 reconstruction workflow, and Streamlit contract remain unchanged.
 
+The Streamlit registration-percentage integration is a narrower deployment target
+than the generic variable-width baseline described below. Its final retraining must
+use the strict eight-feature contract and parity artifact documented in
+[`registration_random_forest.md`](registration_random_forest.md). A generic
+`random_forest_numeric_cv` artifact is deliberately not accepted as a substitute.
+
 ## Exact inputs required for genuine training
 
 1. A local CO3D subset with each category's `frame_annotations.jgz`,

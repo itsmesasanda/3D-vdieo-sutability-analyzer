@@ -1,0 +1,6 @@
+filename,scenario,object_id,bbox_x,bbox_y,bbox_width,bbox_height,notes
+front_only.mov,front_only,replace_with_one_physical_object_id,0.25,0.10,0.50,0.80,Replace the box with the normalized middle-frame object bounds.
+quarter_orbit.mov,quarter_orbit,replace_with_one_physical_object_id,0.25,0.10,0.50,0.80,Record roughly one quarter orbit while keeping the object static.
+full_orbit.mov,full_orbit,replace_with_one_physical_object_id,0.25,0.10,0.50,0.80,Record the same object and scene through a complete intended orbit.
+rotation_only.mov,rotation_only,replace_with_one_physical_object_id,0.25,0.10,0.50,0.80,Rotate the camera from one center without translating it.
+blurred.mov,blurred,replace_with_one_physical_object_id,0.25,0.10,0.50,0.80,Record the same orbit with deliberate defocus or motion blur.

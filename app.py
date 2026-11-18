@@ -6,17 +6,24 @@ import hashlib
 import json
 import os
 import tempfile
+import time
 from pathlib import Path
 from typing import Any, Dict, List
 
 from video_suitability.infer import analyze_video
+from video_suitability.ml.registration_rf import (
+    artifact_cache_identity,
+    attach_registration_prediction,
+)
 from video_suitability.presentation import (
     component_rows,
     extract_problem_frames,
     load_evaluation_rows,
     recommendation_cards,
+    registration_prediction_view,
     score_style,
     timeline_rows,
+    viewpoint_diversity_view,
 )
 
 
@@ -40,6 +47,12 @@ APP_CSS = """
   .component-card { min-height:112px; padding:.9rem; border-radius:16px; background:white; border:1px solid #e0e8e6; margin-bottom:.5rem; }
   .component-card .label { font-size:.78rem; color:#657672; min-height:2.2rem; }
   .component-card .value { font-size:1.55rem; font-weight:750; color:#173d38; }
+  .viewpoint-panel { margin-top:1rem; padding:1.15rem 1.25rem; border-radius:18px; background:white; border:1px solid #dce6e3; box-shadow:0 8px 24px rgba(33,54,50,.05); }
+  .viewpoint-label { display:inline-block; padding:.3rem .7rem; border-radius:99px; color:white; font-size:.78rem; font-weight:750; letter-spacing:.04em; }
+  .viewpoint-panel h3 { margin:.55rem 0 .25rem; color:#173d38; }
+  .viewpoint-panel p { margin:.2rem 0; color:#60706d; }
+  .registration-panel { margin-top:1rem; padding:1.15rem 1.25rem; border-radius:18px; background:linear-gradient(120deg,#f4f7ff,#fff); border:1px solid #d9e1f2; }
+  .registration-value { font-size:2rem; font-weight:800; color:#294b7a; }
   .timeline-row { position:relative; padding:.8rem .9rem .75rem; background:white; border:1px solid #e0e8e6; border-radius:14px; margin:.45rem 0; overflow:hidden; }
   .timeline-row strong { color:#173d38; }
   .timeline-meta { color:#71807d; font-size:.8rem; }
@@ -62,7 +75,7 @@ def _hero(st: Any) -> None:
           <div class="mvp-kicker">Capture intelligence · CPU heuristic</div>
           <h1>Will this video reconstruct well?</h1>
           <p>Inspect sharpness, lighting, view overlap and camera motion before spending time on a 3D reconstruction run.</p>
-          <span class="method-chip">No remote upload · no trained model · no reconstruction claim</span>
+          <span class="method-chip">No remote upload · optional parity-gated RF · no reconstruction claim</span>
         </section>
         """,
         unsafe_allow_html=True,
@@ -122,6 +135,69 @@ def _uncertainty(st: Any, report: Dict[str, Any]) -> None:
         st.info(f"**{title}**\n\n{body}")
     else:
         st.success(f"**{title}**\n\n{body}")
+
+
+def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
+    view = viewpoint_diversity_view(report)
+    st.markdown(
+        f"""
+        <div class="viewpoint-panel">
+          <div class="eyebrow">Separate result · does not change the suitability score</div>
+          <h3>Estimated Viewpoint Diversity <span class="viewpoint-label" style="background:{view['style']['color']}">{view['label']}</span></h3>
+          <p>{view['summary']}</p>
+          <p><strong>Decision:</strong> {view['primary_reason'] or 'See the evidence details below.'}</p>
+          <p><strong>Evidence:</strong> {view['substantial_change_percent']}% of selected long-gap pairs show substantial change · {view['parallax_proxy_percent']}% of long-gap pairs show a cautious parallax proxy · {view['repeated_view_count']} repeated-view pair(s).</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.expander("Viewpoint-diversity filming guidance", expanded=view["label"] != "High"):
+        for recommendation in view["recommendations"]:
+            st.write(f"- {recommendation}")
+        if not view["intrinsics_used"]:
+            st.caption(
+                "No camera intrinsics were supplied. Calibrated relative pose and rotation-compensated parallax remain unavailable."
+            )
+        if view["analysis_mode"] == "object_focused":
+            background_text = (
+                f"{view['background_dominated_percent']}%"
+                if view["background_dominated_percent"] is not None
+                else "not evaluable because tracking failed"
+            )
+            st.write(
+                f"Object tracking coverage: **{view['tracking_percent']}%** · "
+                f"background-dominated long-gap pairs: **{background_text}**"
+            )
+        st.caption(
+            "This category does not measure exact orbit angle or the percentage of object surface captured."
+        )
+
+
+def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
+    view = registration_prediction_view(report)
+    if view["available"]:
+        st.markdown(
+            f"""
+            <div class="registration-panel">
+              <div class="eyebrow">Separate learned estimate · does not change either heuristic result</div>
+              <h3>Predicted COLMAP image registration</h3>
+              <div class="registration-value">{float(view['percentage']):.1f}%</div>
+              <p>{view['interpretation']}</p>
+              <p><strong>Artifact:</strong> {view['model_version']} · feature parity verified on {view['parity_case_count']} saved training example(s).</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    else:
+        message = (
+            "**Predicted COLMAP image registration: unavailable**\n\n"
+            f"{view['reason']}\n\n"
+            "The main suitability score and experimental viewpoint category are still valid and unchanged."
+        )
+        if view["status"] == "incompatible":
+            st.warning(message)
+        else:
+            st.info(message)
 
 
 def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
@@ -185,31 +261,161 @@ def _recommendations(st: Any, rows: List[Dict[str, Any]]) -> None:
         )
 
 
-def _run_uploaded_analysis(st: Any, upload: Any) -> Dict[str, Any]:
-    buffer = upload.getbuffer()
-    digest = hashlib.sha256(buffer).hexdigest()
-    cached = st.session_state.get("video_analysis_cache")
-    if cached and cached.get("digest") == digest:
-        return cached
-    suffix = Path(upload.name).suffix or ".mp4"
+def _analyze_upload_payload(
+    buffer: Any,
+    filename: str,
+    object_bbox: Any = None,
+    registration_artifact_dir: Any = None,
+) -> Dict[str, Any]:
+    """Pure upload-to-result path shared by Streamlit and performance benchmarks."""
+
+    upload_wall_started = time.perf_counter()
+    upload_cpu_started = time.process_time()
+    suffix = Path(filename).suffix or ".mp4"
     temporary_path = ""
     try:
+        write_wall_started = time.perf_counter()
+        write_cpu_started = time.process_time()
         with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
             handle.write(buffer)
             temporary_path = handle.name
-        with st.spinner("Sampling the full timeline and checking quality, overlap and motion…"):
-            report = analyze_video(temporary_path)
-            rows = timeline_rows(report)
-            frames = extract_problem_frames(Path(temporary_path), rows, max_frames=6, max_side=720)
-        cached = {
-            "digest": digest,
-            "filename": upload.name,
+        write_wall = time.perf_counter() - write_wall_started
+        write_cpu = time.process_time() - write_cpu_started
+        report = analyze_video(
+            temporary_path,
+            object_bbox=object_bbox,
+            include_performance_profile=True,
+        )
+        report = attach_registration_prediction(
+            report,
+            Path(temporary_path),
+            artifact_dir=registration_artifact_dir,
+        )
+        rows = timeline_rows(report)
+        return {
+            "filename": filename,
             "report": report,
             "timeline": rows,
-            "frames": frames,
+            "frames": [],
+            "upload_performance": {
+                "temporary_file_write_wall_seconds": round(write_wall, 6),
+                "temporary_file_write_cpu_seconds": round(write_cpu, 6),
+                "upload_to_result_wall_seconds": round(
+                    time.perf_counter() - upload_wall_started, 6
+                ),
+                "upload_to_result_cpu_seconds": round(
+                    time.process_time() - upload_cpu_started, 6
+                ),
+                "diagnostic_rendering_included": False,
+            },
         }
-        st.session_state["video_analysis_cache"] = cached
+    finally:
+        if temporary_path:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+
+
+def _run_uploaded_analysis(
+    st: Any, upload: Any, object_bbox: Any = None
+) -> Dict[str, Any]:
+    buffer = upload.getbuffer()
+    digest = hashlib.sha256(buffer).hexdigest()
+    normalized_bbox = tuple(object_bbox) if object_bbox is not None else None
+    registration_identity = artifact_cache_identity()
+    cached = st.session_state.get("video_analysis_cache")
+    if (
+        cached
+        and cached.get("digest") == digest
+        and cached.get("object_bbox") == normalized_bbox
+        and cached.get("registration_artifact_identity") == registration_identity
+    ):
         return cached
+    with st.spinner("Sampling the full timeline and checking quality, overlap and motion…"):
+        result = _analyze_upload_payload(buffer, upload.name, object_bbox=object_bbox)
+    cached = {
+        **result,
+        "digest": digest,
+        "object_bbox": normalized_bbox,
+        "registration_artifact_identity": registration_identity,
+    }
+    st.session_state["video_analysis_cache"] = cached
+    return cached
+
+
+def _representative_upload_frame(st: Any, upload: Any) -> Any:
+    """Decode one middle source frame for optional object-box selection."""
+
+    try:
+        import cv2
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("OpenCV is required for object selection") from exc
+    buffer = upload.getbuffer()
+    digest = hashlib.sha256(buffer).hexdigest()
+    cached = st.session_state.get("object_selection_preview")
+    if cached and cached.get("digest") == digest:
+        return cached["image_rgb"]
+    temporary_path = ""
+    try:
+        suffix = Path(upload.name).suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(buffer)
+            temporary_path = handle.name
+        cap = cv2.VideoCapture(temporary_path)
+        if not cap.isOpened():
+            cap.release()
+            raise RuntimeError("Could not decode a representative frame")
+        frame_count = max(1, int(round(cap.get(cv2.CAP_PROP_FRAME_COUNT))))
+        cap.set(cv2.CAP_PROP_POS_FRAMES, float((frame_count - 1) // 2))
+        ok, frame = cap.read()
+        cap.release()
+        if not ok or frame is None:
+            raise RuntimeError("Could not decode the middle video frame")
+        height, width = frame.shape[:2]
+        if max(height, width) > 720:
+            scale = 720.0 / max(height, width)
+            frame = cv2.resize(
+                frame,
+                (max(1, round(width * scale)), max(1, round(height * scale))),
+                interpolation=cv2.INTER_AREA,
+            )
+        image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        st.session_state["object_selection_preview"] = {
+            "digest": digest,
+            "image_rgb": image_rgb,
+        }
+        return image_rgb
+    finally:
+        if temporary_path:
+            try:
+                os.unlink(temporary_path)
+            except OSError:
+                pass
+
+
+def _run_uploaded_diagnostics(st: Any, upload: Any, rows: List[Dict[str, Any]]) -> Any:
+    buffer = upload.getbuffer()
+    digest = hashlib.sha256(buffer).hexdigest()
+    cached = st.session_state.get("problem_frame_cache")
+    if cached and cached.get("digest") == digest:
+        return cached["frames"]
+    temporary_path = ""
+    try:
+        suffix = Path(upload.name).suffix or ".mp4"
+        with tempfile.NamedTemporaryFile(suffix=suffix, delete=False) as handle:
+            handle.write(buffer)
+            temporary_path = handle.name
+        started = time.perf_counter()
+        frames = extract_problem_frames(
+            Path(temporary_path), rows, max_frames=6, max_side=720
+        )
+        st.session_state["problem_frame_cache"] = {
+            "digest": digest,
+            "frames": frames,
+            "render_wall_seconds": round(time.perf_counter() - started, 6),
+        }
+        return frames
     finally:
         if temporary_path:
             try:
@@ -230,8 +436,78 @@ def _analysis_view(st: Any) -> None:
         middle.info("**2 · Analyze**\n\nUniform samples cover the complete declared timeline.")
         right.info("**3 · Improve**\n\nInspect exact intervals and retake what needs fixing.")
         return
+    use_object_box = st.checkbox(
+        "Focus viewpoint analysis on a selected object region",
+        value=False,
+        help=(
+            "The suitability score remains whole-frame and unchanged. Only the separate "
+            "viewpoint category uses the tracked box."
+        ),
+    )
+    object_bbox = None
+    if use_object_box:
+        try:
+            preview = _representative_upload_frame(st, upload)
+        except Exception as exc:
+            st.warning(f"Object-selection preview unavailable: {exc}")
+            preview = None
+        horizontal = st.slider(
+            "Horizontal object bounds (%)", 0, 100, (25, 75), step=1
+        )
+        vertical = st.slider(
+            "Vertical object bounds (%)", 0, 100, (10, 90), step=1
+        )
+        if horizontal[1] - horizontal[0] < 5 or vertical[1] - vertical[0] < 5:
+            st.warning("The selected box must cover at least 5% in both dimensions.")
+            return
+        object_bbox = [
+            horizontal[0] / 100.0,
+            vertical[0] / 100.0,
+            (horizontal[1] - horizontal[0]) / 100.0,
+            (vertical[1] - vertical[0]) / 100.0,
+        ]
+        if preview is not None:
+            try:
+                import cv2
+
+                annotated = preview.copy()
+                height, width = annotated.shape[:2]
+                start = (
+                    round(object_bbox[0] * width),
+                    round(object_bbox[1] * height),
+                )
+                end = (
+                    round((object_bbox[0] + object_bbox[2]) * width),
+                    round((object_bbox[1] + object_bbox[3]) * height),
+                )
+                cv2.rectangle(annotated, start, end, (22, 210, 120), 3)
+                st.image(
+                    annotated,
+                    caption="Middle-frame selection; tracking must remain reliable across the timeline.",
+                    use_column_width=True,
+                )
+            except Exception:
+                st.image(preview, use_column_width=True)
+    buffer_digest = hashlib.sha256(upload.getbuffer()).hexdigest()
+    bbox_key = tuple(object_bbox) if object_bbox is not None else None
+    existing = st.session_state.get("video_analysis_cache")
+    matching_cache = bool(
+        existing
+        and existing.get("digest") == buffer_digest
+        and existing.get("object_bbox") == bbox_key
+        and existing.get("registration_artifact_identity")
+        == artifact_cache_identity()
+    )
+    analyze_clicked = st.button(
+        "Analyze video",
+        type="primary",
+        use_container_width=True,
+    )
+    if not analyze_clicked and not matching_cache:
+        st.info("Choose the optional object region, then click Analyze video.")
+        return
     try:
-        result = _run_uploaded_analysis(st, upload)
+        result = _run_uploaded_analysis(st, upload, object_bbox=object_bbox)
     except Exception as exc:
         st.error(f"Analysis failed: {exc}")
         return
@@ -243,10 +519,22 @@ def _analysis_view(st: Any) -> None:
         _score_panel(st, report)
         st.write("")
         _components(st, report)
+        _registration_prediction(st, report)
+        _viewpoint_diversity(st, report)
         _uncertainty(st, report)
     with problems:
         _timeline(st, result["timeline"])
-        _frame_gallery(st, result["frames"])
+        if st.button("Render representative problem frames"):
+            with st.spinner("Rendering diagnostic frames separately from analysis…"):
+                result["frames"] = _run_uploaded_diagnostics(
+                    st, upload, result["timeline"]
+                )
+        if result.get("frames"):
+            _frame_gallery(st, result["frames"])
+        else:
+            st.caption(
+                "Diagnostic frame rendering is deferred so the upload-to-result path stays responsive."
+            )
     with guidance:
         _recommendations(st, result["timeline"])
     with technical:
@@ -259,6 +547,20 @@ def _analysis_view(st: Any) -> None:
             st.write(f"- {warning}")
         with st.expander("Full JSON report"):
             st.json(report, expanded=False)
+        if report.get("performance_profile"):
+            with st.expander("CPU performance profile"):
+                st.json(
+                    {
+                        "upload_path": result.get("upload_performance", {}),
+                        "analysis_pipeline": report["performance_profile"],
+                        "registration_prediction": report.get(
+                            "registration_prediction", {}
+                        ).get("performance_profile"),
+                        "diagnostic_rendering": st.session_state.get(
+                            "problem_frame_cache", {}
+                        ).get("render_wall_seconds"),
+                    }
+                )
         payload = json.dumps(report, indent=2, allow_nan=False)
         st.download_button(
             "Download JSON report",
@@ -309,7 +611,7 @@ def _evaluation_view(st: Any) -> None:
 def _method_view(st: Any) -> None:
     st.markdown("### What this MVP measures")
     st.write(
-        "Uniform whole-timeline samples feed visual quality, exposure, ORB/RANSAC geometry, optical-flow retention, overlap and camera-motion evidence."
+        "Uniform whole-timeline samples feed visual quality, exposure, ORB/RANSAC geometry, optical-flow retention, overlap and camera-motion evidence. A separate multi-gap module estimates viewpoint diversity without changing either score path."
     )
     c1, c2, c3 = st.columns(3)
     c1.success("**Local & CPU-runnable**\n\nNo video is sent to a paid API by this app.")

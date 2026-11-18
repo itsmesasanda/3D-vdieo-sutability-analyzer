@@ -170,6 +170,102 @@ def component_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the standalone viewpoint result used by the UI."""
+
+    result = report.get("viewpoint_diversity", {})
+    label = result.get("label", "Unknown")
+    styles = {
+        "High": {"color": "#16a674", "tone": "positive"},
+        "Moderate": {"color": "#e49a22", "tone": "warning"},
+        "Low": {"color": "#df5b5b", "tone": "negative"},
+        "Unknown": {"color": "#6f7f7c", "tone": "neutral"},
+    }
+    indicators = result.get("indicators", {})
+    tracking = result.get("object_tracking", {})
+    background = result.get("background_diagnostics", {})
+    return {
+        "label": label,
+        "summary": result.get("summary", "Viewpoint evidence is unavailable."),
+        "style": styles.get(label, styles["Unknown"]),
+        "recommendations": list(result.get("recommendations", [])),
+        "warnings": list(result.get("warnings", [])),
+        "repeated_view_count": len(result.get("repeated_view_intervals", [])),
+        "intrinsics_used": bool(result.get("method", {}).get("intrinsics_used", False)),
+        "affects_overall_score": bool(
+            result.get("method", {}).get("affects_overall_score", False)
+        ),
+        "analysis_mode": result.get("method", {}).get(
+            "analysis_mode", "whole_frame"
+        ),
+        "primary_reason": result.get("decision_explanation", {}).get(
+            "primary_reason", ""
+        ),
+        "tracking_percent": round(
+            100.0 * float(tracking.get("tracked_sample_fraction", 0.0))
+        )
+        if tracking
+        else None,
+        "background_dominated_percent": (
+            round(
+                100.0
+                * float(background["background_dominated_pair_fraction"])
+            )
+            if background.get("background_dominated_pair_fraction") is not None
+            else None
+        ),
+        "parallax_proxy_percent": round(
+            100.0
+            * float(
+                indicators.get(
+                    "temporally_separated_parallax_proxy_pair_fraction",
+                    indicators.get("parallax_proxy_pair_fraction", 0.0),
+                )
+            )
+        ),
+        "substantial_change_percent": round(
+            100.0
+            * float(
+                indicators.get(
+                    "temporally_separated_substantial_change_fraction", 0.0
+                )
+            )
+        ),
+    }
+
+
+def registration_prediction_view(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the separate learned COLMAP-registration result for Streamlit."""
+
+    result = report.get("registration_prediction", {})
+    status = result.get("status", "unavailable")
+    available = status == "available"
+    return {
+        "status": status,
+        "available": available,
+        "percentage": result.get("predicted_registration_percentage"),
+        "reason": result.get(
+            "reason", "No compatible Random Forest prediction is attached."
+        ),
+        "interpretation": result.get(
+            "interpretation",
+            "This learned estimate is unavailable; the heuristic remains authoritative.",
+        ),
+        "model_version": result.get("model_version"),
+        "parity_verified": (
+            result.get("feature_parity", {}).get("status") == "verified"
+        ),
+        "parity_case_count": result.get("feature_parity", {}).get("case_count", 0),
+        "affects_suitability_score": bool(
+            result.get("affects_suitability_score", False)
+        ),
+        "affects_viewpoint_diversity": bool(
+            result.get("affects_viewpoint_diversity", False)
+        ),
+        "colmap_run": bool(result.get("colmap_run", False)),
+    }
+
+
 def _time_range(start: float, end: float) -> str:
     if abs(end - start) < 0.005:
         return f"{start:.2f}s"

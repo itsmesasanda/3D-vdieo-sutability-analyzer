@@ -39,9 +39,16 @@ def _spatial_coverage(
     return occupied / float(grid_size * grid_size)
 
 
-def _detect_features(
+def detect_orb_features(
     frames: Sequence[np.ndarray], config: AnalysisConfig
 ) -> Tuple[List[List[Any]], List[Optional[np.ndarray]]]:
+    """Detect ORB features once for reuse by geometry consumers.
+
+    The viewpoint-diversity module shares this cache with the existing adjacent-pair
+    analysis. Keeping feature extraction here guarantees identical ORB settings and
+    avoids a second detector pass over every sampled frame.
+    """
+
     cv2 = _cv2()
     cv2.setRNGSeed(42)
     orb = cv2.ORB_create(
@@ -57,6 +64,10 @@ def _detect_features(
         keypoints.append(kp or [])
         descriptors.append(desc)
     return keypoints, descriptors
+
+
+# Backward-compatible private alias for any internal callers from earlier revisions.
+_detect_features = detect_orb_features
 
 
 def _optical_flow_metrics(
@@ -197,7 +208,7 @@ def _optical_flow_metrics(
     return result
 
 
-def _pair_metrics(
+def analyze_frame_pair_geometry(
     frame_a: np.ndarray,
     frame_b: np.ndarray,
     keypoints_a: Sequence[Any],
@@ -209,13 +220,33 @@ def _pair_metrics(
     start_time: float,
     end_time: float,
     config: AnalysisConfig,
+    calculate_optical_flow: bool = True,
 ) -> Dict[str, Any]:
+    """Match one frame pair and verify it with fundamental/homography RANSAC."""
+
     cv2 = _cv2()
     height, width = frame_a.shape[:2]
     diagonal = max(1.0, float(np.hypot(width, height)))
     delta_time = max(1e-6, float(end_time) - float(start_time))
     issues: List[str] = []
-    flow = _optical_flow_metrics(frame_a, frame_b, delta_time)
+    flow = (
+        _optical_flow_metrics(frame_a, frame_b, delta_time)
+        if calculate_optical_flow
+        else {
+            "flow_initial_points": 0,
+            "flow_tracked_points": 0,
+            "flow_track_retention": 0.0,
+            "flow_median_displacement_normalized": None,
+            "flow_p90_displacement_normalized": None,
+            "flow_speed_normalized_per_second": None,
+            "flow_velocity_x_normalized_per_second": None,
+            "flow_velocity_y_normalized_per_second": None,
+            "affine_rotation_degrees": None,
+            "affine_rotation_rate_degrees_per_second": None,
+            "affine_scale": None,
+            "affine_residual_median_normalized": None,
+        }
+    )
 
     base: Dict[str, Any] = {
         "start_frame_index": int(start_index),
@@ -230,6 +261,7 @@ def _pair_metrics(
         "verification_model": None,
         "match_ratio": 0.0,
         "descriptor_ambiguity_fraction": None,
+        "strict_descriptor_ambiguity_fraction": None,
         "verified_match_ratio": 0.0,
         "inlier_ratio": 0.0,
         "spatial_coverage": 0.0,
@@ -243,9 +275,9 @@ def _pair_metrics(
         "issues": issues,
         **flow,
     }
-    short_gap_for_flow_reliability = delta_time <= 0.30
+    short_gap_for_flow_reliability = calculate_optical_flow and delta_time <= 0.30
     base["optical_flow_short_gap_evaluable"] = short_gap_for_flow_reliability
-    if not short_gap_for_flow_reliability:
+    if calculate_optical_flow and not short_gap_for_flow_reliability:
         issues.append("motion_sampling_gap_too_wide")
     if (
         short_gap_for_flow_reliability
@@ -276,6 +308,16 @@ def _pair_metrics(
         ]
         base["descriptor_ambiguity_fraction"] = _rounded(
             float(np.mean(np.asarray(distance_ratios) >= 0.90))
+        )
+        base["strict_descriptor_ambiguity_fraction"] = _rounded(
+            float(
+                np.mean(
+                    [
+                        pair[1].distance <= 2.0 or ratio >= 0.90
+                        for pair, ratio in zip(valid_candidates, distance_ratios)
+                    ]
+                )
+            )
         )
     good = [
         m
@@ -402,6 +444,10 @@ def _pair_metrics(
     return base
 
 
+# Backward-compatible private alias retained for the existing adjacent-pair caller.
+_pair_metrics = analyze_frame_pair_geometry
+
+
 def _annotate_motion_irregularity(pairs: Sequence[Dict[str, Any]]) -> None:
     """Mark sudden changes in timestamp-normalized global flow between pairs."""
 
@@ -471,6 +517,9 @@ def analyze_geometry(
     frame_indices: Sequence[int],
     timestamps_seconds: Sequence[float],
     config: AnalysisConfig,
+    detected_features: Optional[
+        Tuple[List[List[Any]], List[Optional[np.ndarray]]]
+    ] = None,
 ) -> Dict[str, Any]:
     """Analyze adjacent uniformly sampled frames using ORB and robust geometry."""
 
@@ -479,9 +528,11 @@ def analyze_geometry(
     if not frames:
         raise ValueError("at least one frame is required")
 
-    keypoints, descriptors = _detect_features(frames, config)
+    keypoints, descriptors = detected_features or detect_orb_features(frames, config)
+    if len(keypoints) != len(frames) or len(descriptors) != len(frames):
+        raise ValueError("detected_features must contain one entry per frame")
     pairs = [
-        _pair_metrics(
+        analyze_frame_pair_geometry(
             frames[i],
             frames[i + 1],
             keypoints[i],

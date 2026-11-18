@@ -648,3 +648,653 @@ predeclared binary threshold and frozen v2.1 predictions are optional comparison
 inputs, not supervision. See `docs/ml_training_pipeline.md` for the exact columns and
 commands.
 
+## Estimated Viewpoint Diversity v1 — complete (2026-11-18)
+
+Status: implemented as an additive CPU-only result. The established heuristic v1,
+heuristic v2.1, and optional Random Forest code paths were not changed. No COLMAP,
+training, labels, dataset, network service, or GPU was used.
+
+### Implementation
+
+- `src/video_suitability/viewpoint.py` adds bounded nearby/quarter-gap/half-gap/
+  endpoint evidence, repeated-view detection, conservative parallax-like evidence,
+  rotation/planar ambiguity handling, and Low/Moderate/High/Unknown categories.
+- ORB detection is now a reusable public helper in `geometry.py`. One feature cache
+  feeds both the unchanged adjacent geometry analysis and the new module. The
+  existing pair matcher/RANSAC path is reused for at most 15 temporally separated
+  pairs, with expensive LK optical flow disabled only for those new long-gap pairs.
+- Optional calibrated intrinsics are accepted through the Python API and CLI. They
+  are scaled from their supplied image dimensions to the analysis frame, then used
+  for essential-matrix RANSAC, relative rotation, unit translation direction, and a
+  rotation-compensated bearing-change indicator. Translation scale remains
+  explicitly unavailable.
+- Blur, low texture, sparse verified geometry, descriptor ambiguity consistent with
+  repetitive/symmetric appearance, and homography-dominant changed pairs cause
+  `Unknown`/insufficient evidence instead of a viewpoint claim.
+- The JSON `viewpoint_diversity` block records `affects_overall_score: false`,
+  `trained_model_used: false`, and `colmap_run: false`, plus raw pair evidence,
+  repeated intervals, warnings, and actions. It explicitly rejects exact orbit-angle,
+  360-degree, and object-surface-coverage interpretations.
+- `app.py` shows a separate Estimated Viewpoint Diversity panel and expandable
+  filming guidance in the Overview tab. `presentation.py` keeps this view model
+  testable without Streamlit.
+- `synthetic.py` adds deterministic front-only, quarter-sweep, and periodic
+  full-sweep videos. These layered 2D fixtures test gates and plumbing, not real-world
+  accuracy.
+- `scripts/benchmark_viewpoint_diversity.py`,
+  `benchmarks/viewpoint_diversity_synthetic.json`, and
+  `docs/viewpoint_diversity.md` provide a reproducible scenario/timing audit.
+
+Score isolation is covered by replacing the complete viewpoint function in a test
+and confirming that overall score, all five subscores, and the v1 baseline remain
+identical. No file under `src/video_suitability/ml/` changed.
+
+### Controlled scenario outcomes and CPU timing
+
+With 16 uniformly sampled frames at a maximum 400-pixel side, all five declared
+synthetic expectations matched:
+
+| Scenario | Expected | Observed | Wall seconds | Process CPU seconds |
+|---|---|---|---:|---:|
+| Front-only | Low | Low | 0.566664 | 0.789746 |
+| Quarter-orbit proxy | Moderate | Moderate | 0.360235 | 0.772738 |
+| Periodic full-orbit proxy | High | High | 0.422247 | 0.848246 |
+| Rotation-only | Unknown | Unknown | 0.355103 | 0.773124 |
+| Blurry orbit | Unknown | Unknown | 0.188688 | 0.329715 |
+
+The complete five-video end-to-end runs took 1.892937 seconds wall and 3.513569
+seconds process CPU on macOS 14.5 arm64 with Python 3.9.6 and OpenCV 4.14.0. With
+decoded frames, quality, the shared ORB cache, and adjacent geometry already
+available, the new module itself took 0.349794 seconds wall and 0.833215 seconds
+process CPU across all five videos. OpenCV used multiple CPU threads, so process CPU
+exceeds wall time. This single local run is a resource check, not a cross-platform
+performance guarantee or accuracy benchmark.
+
+### Commands actually run and observed results
+
+Before implementation:
+
+```bash
+.venv/bin/python -m pytest -q
+```
+
+Observed: `40 passed, 3 skipped in 6.01s`; skips were the already-missing optional
+scikit-learn/PyTorch dependencies.
+
+Final validation:
+
+```bash
+.venv/bin/python scripts/benchmark_viewpoint_diversity.py \
+  --out benchmarks/viewpoint_diversity_synthetic.json
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+.venv/bin/python -m pytest -q
+```
+
+Observed: all five benchmark expectations matched; compileall exited 0 without
+output; the final pytest pass reported `46 passed, 3 skipped in 7.16s`. A focused
+viewpoint, geometry, and integration run reported `15 passed in 9.12s`; the
+viewpoint-only suite reported `6 passed in 5.41s`.
+
+The CLI/intrinsics smoke test generated the deterministic videos under
+`/private/tmp/viewpoint_cli_v1` and ran:
+
+```bash
+.venv/bin/python -m video_suitability.infer \
+  --video /private/tmp/viewpoint_cli_v1/full_orbit.mp4 \
+  --out /private/tmp/viewpoint_cli_v1/full_orbit_report.json \
+  --max-samples 16 --max-side 320 \
+  --camera-fx 420 --camera-fy 420 --camera-cx 240 --camera-cy 180 \
+  --intrinsics-width 480 --intrinsics-height 360
+```
+
+Observed: valid heuristic v2/revision 2.1 JSON, unchanged score path at 91.72,
+viewpoint category `High`, 13 separated pairs, 13 relative-motion records, median
+rotation-compensated bearing change 1.793203 degrees, `intrinsics_used: true`,
+`affects_overall_score: false`, and `colmap_run: false`.
+
+## Real-world viewpoint validation preparation — complete (2026-11-18)
+
+Status: the folder validator, CSV audit, feature/motion diagnostics, real-sample run,
+and conservative ambiguity repair are complete. No ML training, COLMAP execution,
+score change, or guessed camera calibration occurred.
+
+### Added validation workflow
+
+- `scripts/validate_viewpoint_real_videos.py` recursively evaluates supported local
+  videos with the existing `analyze_video` API. It preserves pre/post SHA-256,
+  records separate analysis/diagnostic/total wall and process CPU times, supports an
+  optional filename-keyed intrinsics JSON, and continues across per-file failures.
+- `src/video_suitability/viewpoint_diagnostics.py` selects repeated, planar/rotation,
+  parallax-proxy, largest-change, and weakest-geometry pairs. JPEG overlays show
+  RANSAC-verified matches in green, rejected ratio matches in gray, and raw
+  image-motion arrows in yellow with an explicit “not proof of translation” legend.
+- `evaluation/viewpoint_real_validation/validation.csv` contains filename,
+  viewpoint category/evidence status, unchanged suitability score, all requested
+  match/parallax/repeated-view indicators, risk flags, warnings, diagnostic paths,
+  and actual CPU/wall timings.
+- `evaluation/viewpoint_real_validation/REPORT.md` records the cohort limits,
+  results, independent capture-quality context, per-file misclassification review,
+  and local diagnostic links. Full JSON and diagnostic images are locally available
+  but ignored because they reveal source-media content.
+- `.gitignore`, `README.md`, and `docs/viewpoint_diversity.md` document the workflow,
+  privacy boundary, optional-intrinsics risk, and non-accuracy interpretation.
+- `tests/test_real_viewpoint_validation.py` exercises a two-video folder run, CSV
+  schema, nonzero CPU timings, readable diagnostic JPEGs, source-hash preservation,
+  reporting language, and misleading-risk flags.
+
+### Real inputs found and first-pass audit
+
+The historical `data/samples/real_tests` folder contains three real phone HEVC MOV
+captures and one synthetic MP4 regression fixture. The first validation pass labeled
+all three phone captures `High`. Inspection of the generated overlays showed matches
+spanning the patterned tablecloth, chair slats, background, and an approximately
+symmetric dark object. Median separated-pair verified matches were only 10–11, while
+median strict cross-view descriptor ambiguity was 0.786–0.805.
+
+The viewpoint-only evidence gate now returns `Unknown` when the median strict
+separated-pair ambiguity is at least 0.65. This metric treats close second-best ORB
+descriptors and exact ties as ambiguity. The preserved scoring ambiguity metric,
+heuristic score formula, thresholds, and all ML files remain unchanged. Controlled
+front-only, quarter-orbit, full-orbit, rotation-only, and blur outcomes still match
+their declared expectations.
+
+### Final real-folder results
+
+The final run used 32 samples, a 640-pixel maximum analysis side, and up to three
+diagnostic pairs. No intrinsics were available or inferred.
+
+| Video | Viewpoint result | Evidence | Nearby / separated median verified matches | Parallax proxy fraction | Repeated pairs | Strict ambiguity | Total process CPU (s) | Total wall (s) |
+|---|---|---|---:|---:|---:|---:|---:|---:|
+| IMG_3913.MOV | Unknown | insufficient | 76 / 11 | 0.307692 | 0 | 0.805333 | 154.904683 | 68.200729 |
+| IMG_3914.MOV | Unknown | insufficient | 42 / 11 | 0.230769 | 0 | 0.786000 | 70.396004 | 19.159773 |
+| IMG_3915.MOV | Unknown | insufficient | 17 / 10 | 0.230769 | 0 | 0.804000 | 73.194364 | 49.983723 |
+| orbit_good.mp4 | Moderate | sufficient | 917 / 456 | 1.000000 | 0 | 0.372667 | 1.587537 | 19.020297 |
+
+OpenCV used multiple threads, so summed process CPU exceeds wall time. CPU totals
+include source hashing, the production analysis, diagnostic re-sampling/rendering,
+and post-run hash verification. Wall time varied substantially across repeated runs
+under local system load; the table preserves the final actual run rather than an
+average. All four source hashes remained unchanged. The parallax fraction in this
+table is long-gap-only; the CSV also retains the all-pair fraction separately.
+
+The three phone `Unknown` results do not mean low diversity. `IMG_3913` may be a
+conservative false negative because the independent review calls it good, but its
+long-gap evidence is too ambiguous for the current object-agnostic method.
+`IMG_3914` and `IMG_3915` also have independent excessive-speed/shake concerns and
+selected long-gap pairs with only 4–5 verified matches. `orbit_good.mp4` is not
+real-world evidence: it is a synthetic fixture whose textured background supplies
+hundreds of matches. Its `Moderate` diversity result does not contradict the “very
+poor” capture-quality review or its unchanged suitability score of 44.
+
+The production suitability values were compared with the frozen v2.1 evidence and
+matched exactly: 78.54, 60.00, 48.51, and 44.00. Random Forest and ML files were not
+modified.
+
+### Commands and observed results
+
+Focused validation tests:
+
+```bash
+.venv/bin/python -m pytest -q \
+  tests/test_real_viewpoint_validation.py tests/test_viewpoint.py
+```
+
+Observed before the final full-suite pass: `8 passed in 7.26s`.
+
+Real-folder command:
+
+```bash
+.venv/bin/python scripts/validate_viewpoint_real_videos.py \
+  --input-dir data/samples/real_tests \
+  --output-dir evaluation/viewpoint_real_validation \
+  --max-samples 32 --max-side 640 --max-diagnostic-pairs 3 \
+  --review-csv evaluation/real_video_human_review.csv
+```
+
+Observed: four succeeded, zero failed. The source-score comparison printed
+`unchanged True` against `evaluation/reconstruction/results.csv`.
+
+Final verification:
+
+```bash
+git diff --check
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+.venv/bin/python -m pytest -q
+```
+
+Observed: diff check and compileall exited 0 without output; pytest reported
+`48 passed, 3 skipped in 12.20s`. The three skips are the unchanged optional
+scikit-learn/PyTorch tests in the core environment.
+
+### Remaining validation boundary
+
+There is still no independently assigned viewpoint-diversity band or downstream
+reconstruction result for the real MOV files, so accuracy, precision, recall, and a
+misclassification rate cannot be reported. The next independent step is a held-out
+set with object masks or object-focused review, verified static-subject status,
+calibrated/crop-correct intrinsics where available, and viewpoint labels assigned
+without seeing this module's predictions.
+
+## Object-focused viewpoint validation revision — complete (2026-11-18)
+
+Status: optional object selection, conservative tracking, object/background evidence
+separation, decision explanations, live-path profiling, controlled comparisons, and
+the accessible real-MOV audit are implemented. No score formula, threshold, Random
+Forest/ML file, training path, or COLMAP live behavior changed.
+
+### Files and behavior added
+
+- `src/video_suitability/object_focus.py` validates a normalized middle-frame box,
+  propagates it forward/backward with in-box ORB matches plus affine RANSAC, splits
+  the shared ORB cache into object/background features, runs object-only geometry,
+  and retains background-only comparisons. Tracking below 70% or background
+  dominance on at least 60% of evaluable long-gap pairs forces `Unknown`.
+- Failed tracking stops propagation in that direction. Pairs without two tracked
+  boxes mark background dominance unevaluable instead of reporting a misleading
+  zero.
+- `viewpoint.py` now emits `decision_explanation` with the primary reason, named
+  rule, supporting/limiting evidence, and all insufficiency reasons. Match scarcity,
+  descriptor repetition/symmetry, homography/pure-rotation dominance, inadequate
+  parallax/path extent, blur/low texture, tracking loss, and background dominance
+  are distinct.
+- `infer.py` accepts `object_bbox` and optional performance profiling. It extracts
+  ORB once, reuses it for the unchanged adjacent-score geometry and object focus,
+  and limits the object live path to nine long-gap comparisons. The main score
+  always uses the original whole-frame geometry.
+- `app.py` provides a middle-frame box preview, explicit Analyze button, cache key
+  comprising upload hash plus box, a separate decision explanation, and deferred
+  problem-frame rendering. `_analyze_upload_payload` is shared with the benchmark so
+  the measured route is the route used by Streamlit.
+- `scripts/compare_object_focused_validation.py` evaluates whole/object modes from a
+  manifest and writes categories, evidence, tracking/background diagnostics,
+  separate CPU/wall timings, JSON reports, and a score-invariance check.
+- `evaluation/object_focused_validation/physical_object_manifest_template.csv`
+  prepares front-only, quarter-orbit, full-orbit, rotation-only, and blurred
+  recordings of one physical object. `--require-complete-scenario-set` rejects an
+  incomplete set or mixed object IDs.
+- `scripts/benchmark_object_focused.py` and
+  `benchmarks/object_focused_synthetic_comparison.json` record whole/object
+  controlled evidence and timings. `scripts/benchmark_streamlit_upload.py` and the
+  two `streamlit_upload_real_*.json` files split upload-to-result from diagnostics.
+- `tests/test_object_focus.py` covers box validation, the five scenarios, score-path
+  identity, separate object/background evidence, tracking failure, explanation
+  modes, and production-stage profiling.
+- `docs/object_focused_validation.md`, `docs/viewpoint_diversity.md`, and `README.md`
+  document the API/UI, validation protocol, measured outcomes, non-claims, and
+  remaining risks.
+
+### Controlled whole/object results
+
+The recorded run used 16 samples, a 400-pixel maximum side, and normalized object
+box `[0.25, 0.10, 0.50, 0.80]`:
+
+| Scenario | Whole | Object | Track fraction | Median separated verified matches whole/object | Parallax fraction whole/object | Wall seconds whole/object |
+|---|---|---|---:|---:|---:|---:|
+| front-only | Low | Low | 1.0000 | 1268 / 1143 | 0.000000 / 0.000000 | 3.932140 / 5.027871 |
+| quarter-orbit proxy | Moderate | Moderate | 1.0000 | 561 / 524 | 0.923077 / 1.000000 | 3.648086 / 5.142417 |
+| periodic full-orbit proxy | High | Moderate | 0.9375 | 426 / 432 | 0.923077 / 0.333333 | 2.751614 / 4.214960 |
+| pure rotation | Unknown | Unknown | 1.0000 | 827 / 769 | 0.000000 / 0.000000 | 5.851167 / 3.526223 |
+| blurred | Unknown | Unknown | 1.0000 | 29 / 29 | 1.000000 / 1.000000 | 0.338617 / 0.584740 |
+
+The object-focused full-orbit proxy remains `Moderate`, rather than weakening the
+High rule to fit the fixture name: only one third of evaluated object long-gap pairs
+retain the parallax proxy and tracking misses one endpoint. The blurred proxy remains
+`Unknown` even though its surviving match pairs have parallax-like evidence, because
+the blur gate makes those correspondences untrustworthy. All five overall scores,
+subscores, and baseline-v1 blocks were exactly identical between modes. These are
+layered 2D regressions, not physical-object evidence or an accuracy estimate.
+
+### Accessible real-video comparison
+
+The existing folder does not contain the required controlled five-video physical
+protocol. It contains three unlabeled MOV recordings of the same bottle. Manually
+reviewed middle-frame boxes are stored in `real_samples_manifest.csv`. The comparison
+used 16 samples at 480 pixels:
+
+| Video | Whole -> object | Track fraction | Median verified matches whole/object | CPU seconds whole/object | Wall seconds whole/object | Main score unchanged |
+|---|---|---:|---:|---:|---:|---|
+| IMG_3913.MOV | Unknown -> Unknown | 0.0625 | 11 / 0 | 65.595767 / 65.093366 | 16.462443 / 14.965045 | yes, 60.75 |
+| IMG_3914.MOV | Unknown -> Unknown | 0.0625 | 5 / 0 | 36.171592 / 36.405832 | 8.649205 / 25.018755 | yes, 51.26 |
+| IMG_3915.MOV | Unknown -> Unknown | 0.0625 | 11 / 0 | 36.364412 / 35.443833 | 48.550726 / 6.992575 | yes, 49.94 |
+
+All object tracks stop on the first propagation step because the cropped/dark bottle
+regions are blurred or too low-texture for reliable consensus. Object long-gap
+verified matches are therefore zero and background dominance is `n/a`, because no
+pair has two tracked boxes. Whole-frame primary reasons are insufficient matches or
+high cross-view ambiguity; object mode more specifically reports low object texture
+and unreliable tracking. These Unknown results are intentional insufficient
+evidence, not proof of Low diversity. No independent viewpoint bands or downstream
+reconstructions exist, so no misclassification rate or real-world accuracy is
+reported.
+
+The first batch comparison attempt encountered an OpenCV/FFmpeg 33-second timeout
+and `moov atom not found` while reopening `IMG_3913.MOV`; the runner recorded a
+decode failure instead of turning it into geometric evidence. An isolated retry
+succeeded, and the final three-row comparison then completed successfully. This
+intermittent decoder behavior remains a deployment risk worth monitoring.
+The final offline runner permits exactly one bounded retry per analysis and records
+the retry count; `IMG_3915` whole-frame validation used one retry, which is included
+in its 48.550726-second wall time. Live Streamlit analysis still fails promptly and
+does not silently extend upload latency.
+
+### Exact Streamlit-path performance
+
+Commands:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python scripts/benchmark_streamlit_upload.py \
+  --video data/samples/real_tests/IMG_3914.MOV \
+  --out benchmarks/streamlit_upload_real_whole.json --runs 1
+PYTHONPATH=src:. .venv/bin/python scripts/benchmark_streamlit_upload.py \
+  --video data/samples/real_tests/IMG_3914.MOV \
+  --out benchmarks/streamlit_upload_real_object.json --runs 1 \
+  --object-bbox 0.0,0.30,0.43,0.69
+```
+
+Production-default observed timings:
+
+| Mode | Upload-to-result wall / CPU | Decode wall / CPU | ORB wall | Adjacent geometry wall | Viewpoint wall | Deferred diagnostics wall / CPU |
+|---|---:|---:|---:|---:|---:|---:|
+| whole | 8.779270 / 36.836386 | 6.859514 / 33.833920 | 0.369364 | 0.973989 | 0.361231 | 4.405434 / 23.829048 |
+| object | 9.151934 / 38.103702 | 7.127390 / 34.107377 | 0.359770 | 1.015382 | 0.464500 | 5.634101 / 25.983966 |
+
+Both source hashes remained unchanged and both scores were the established 60.00.
+Diagnostic rendering was not part of upload-to-result. Decoding is the clear
+bottleneck. ORB was extracted once; object focus added under 0.5 seconds wall time
+and did not duplicate whole-frame long-gap classification. Process CPU exceeds wall
+time because OpenCV/FFmpeg uses multiple threads. These are single-host runs, not a
+cross-platform latency guarantee.
+
+### Commands, failures, and final verification
+
+During verification, bare `python` was unavailable (`command not found`); all valid
+project commands use `.venv/bin/python`. The first compile attempt also tried the
+protected macOS bytecode-cache location and produced `PermissionError`; setting a
+task-specific `PYTHONPYCACHEPREFIX` resolved it. A targeted command referenced a
+nonexistent `tests/test_app.py`, then the actual Streamlit coverage was confirmed in
+`tests/test_presentation.py`.
+
+Affected-area tests:
+
+```bash
+PYTHONPATH=src:. .venv/bin/pytest -q \
+  tests/test_object_focus.py tests/test_viewpoint.py \
+  tests/test_integration.py tests/test_presentation.py
+```
+
+Observed: `27 passed in 13.67s` on the final affected-area pass.
+
+Real and controlled comparison commands:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python scripts/compare_object_focused_validation.py \
+  --input-dir data/samples/real_tests \
+  --manifest evaluation/object_focused_validation/real_samples_manifest.csv \
+  --output-dir evaluation/object_focused_validation \
+  --max-samples 16 --max-side 480
+PYTHONPATH=src:. .venv/bin/python scripts/benchmark_object_focused.py \
+  --out benchmarks/object_focused_synthetic_comparison.json \
+  --max-samples 16 --max-side 400
+```
+
+Final verification:
+
+```bash
+git diff --check
+VIEWPOINT_PYCACHE=/private/tmp/viewpoint_pycache \
+  PYTHONPYCACHEPREFIX="$VIEWPOINT_PYCACHE" \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+PYTHONPATH=src:. .venv/bin/pytest -q
+```
+
+Observed: diff check and compileall exited 0 without output. Pytest reported
+`56 passed, 3 skipped in 15.61s`; the three skips are the unchanged optional
+scikit-learn/PyTorch tests missing from the core environment. Streamlit's `AppTest`
+ran as part of the passing suite. No GPU, network, COLMAP, dataset, or model training
+was used.
+
+Final CLI smoke test:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python -m video_suitability.infer \
+  --video data/samples/real_tests/orbit_good.mp4 \
+  --out /private/tmp/object_focus_cli_report.json \
+  --max-samples 8 --max-side 240 \
+  --object-bbox 0.25,0.10,0.50,0.80 --profile
+```
+
+Observed: exit 0, established suitability score 44.00, separate object-focused
+viewpoint `Moderate`, tracking fraction 1.0, and all six expected production timing
+stages in the JSON.
+
+## Random Forest Streamlit integration readiness — complete, artifact pending (2026-11-18)
+
+The Streamlit and opt-in CLI paths now support a separately displayed Random Forest
+estimate of COLMAP registered-image percentage. The existing heuristic score,
+subscores, baseline v1, scoring gates, and experimental viewpoint category are not
+inputs to or modified by this result. Live inference does not invoke COLMAP.
+
+### Artifact and preprocessing audit
+
+A repository-wide inspection of tracked, ignored, and historical files found no
+saved registration Random Forest (`.joblib`/`.pkl`), no export of the historical
+eight-feature preprocessing, and no saved training examples with expected feature
+vectors. `models/` contains only `.gitkeep`. The reference notebook contains a
+different 12-feature temporal/CNN experiment, and the newer generic tabular
+infrastructure uses a variable-width `cv_numeric_features/2.1` schema. Neither was
+silently substituted. No model was retrained on the existing 45 labels.
+
+Consequently, the current UI truthfully reports the registration prediction as
+`unavailable`. A proposed, fully specified eight-feature OpenCV contract is provided
+for the final retraining run, but is not claimed to reproduce an undocumented Colab
+run. A deployable artifact must include a checksum-protected feature specification
+and at least one checksum-protected training video plus its saved eight-feature
+vector. The application re-extracts those features and refuses to load joblib if
+parity fails.
+
+### Files and behavior added
+
+- `src/video_suitability/ml/registration_features.py`: deterministic versioned
+  eight-feature sampling, resize, grayscale, ORB/KNN, homography-RANSAC, formula,
+  aggregation, and feature-order contract.
+- `src/video_suitability/ml/registration_rf.py`: strict target/training-provenance
+  checks, SHA-256 manifest validation, saved-training parity gate, lazy trusted
+  joblib loading, bounded percentage prediction, graceful fallback, timings, and a
+  content-sensitive deployment-artifact cache identity.
+- `app.py` and `presentation.py`: separate registration-result panel and technical
+  timing output. Missing/incompatible artifacts do not prevent the heuristic or
+  viewpoint results from rendering.
+- `infer.py`: optional `--registration-artifact`; the default heuristic API and CLI
+  output remain unchanged unless explicitly requested.
+- `scripts/ml/package_registration_rf.py`: validates and hashes the final artifact
+  without training it. Replacing a versioned artifact directory is sufficient for
+  the next labeling/retraining batch.
+- `scripts/benchmark_registration_rf.py`: CPU feature-only or complete-artifact
+  benchmark with before/after video hashes.
+- `evaluation/ml/registration_rf_artifact_template/`: proposed final-training
+  feature spec and parity schema; it contains no model.
+- `tests/test_registration_rf.py`: exact feature order/determinism, missing artifact,
+  replacement identity, successful parity-gated prediction, parity refusal before
+  joblib loading, score isolation, presentation, and actual upload-path fallback.
+- `pyproject.toml`: an `app-ml` deployment extra for Streamlit, scikit-learn, and
+  joblib; model dependencies remain optional for the core heuristic.
+- `docs/registration_random_forest.md` and `README.md`: artifact handoff, replacement,
+  failure modes, semantics, benchmark, and deployment runbook.
+
+### Commands and observed results
+
+The first syntax pass attempted to write bytecode to the protected macOS cache and
+failed with `PermissionError`; no test was executed by that chained command. The
+corrected sandbox-safe check was:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/video-suitability-pycache \
+  PYTHONPATH=src:. .venv/bin/python -m compileall -q app.py src scripts tests
+PYTHONPATH=src:. .venv/bin/python scripts/ml/package_registration_rf.py --help
+git diff --check
+PYTHONPATH=src:. .venv/bin/pytest -q \
+  tests/test_registration_rf.py tests/test_presentation.py tests/test_integration.py
+```
+
+Observed: compile and diff checks exited 0; the packager help rendered; focused tests
+reported `20 passed in 11.94s`.
+
+Full regression command:
+
+```bash
+PYTHONPATH=src:. .venv/bin/pytest -q
+```
+
+The first full run observed `63 passed, 3 skipped in 16.66s`. After adding the final
+declared-feature-order guard and its regression test, the final compile/diff/targeted/
+full sequence observed `8 passed in 4.32s` for the registration file and
+`64 passed, 3 skipped in 25.04s` repository-wide. The skips are the unchanged
+optional scikit-learn/PyTorch training tests because those dependencies are not
+installed in the core environment. Streamlit coverage ran as part of the passing
+suite. No GPU, network, dataset download, COLMAP execution, or model training was
+used.
+
+Feature-only CPU benchmark commands used the proposed final-training contract:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python scripts/benchmark_registration_rf.py \
+  --video data/samples/real_tests/orbit_good.mp4 \
+  --feature-spec evaluation/ml/registration_rf_artifact_template/feature_extractor.json \
+  --out benchmarks/registration_rf_cpu_untrained.json --runs 3
+PYTHONPATH=src:. .venv/bin/python scripts/benchmark_registration_rf.py \
+  --video data/samples/real_tests/IMG_3913.MOV \
+  --feature-spec evaluation/ml/registration_rf_artifact_template/feature_extractor.json \
+  --out benchmarks/registration_rf_cpu_real_mov_untrained.json --runs 3
+```
+
+Observed means:
+
+| Input | Samples / pairs | Wall seconds | Process CPU seconds | Deterministic | Source unchanged |
+|---|---:|---:|---:|---|---|
+| `orbit_good.mp4` | 16 / 15 | 0.260569 | 0.347153 | yes | yes |
+| `IMG_3913.MOV` (4K HEVC) | 16 / 15 | 12.873245 | 59.008896 | yes | yes |
+
+These are feature-extraction timings, not trained-model timings or accuracy results.
+The real MOV result shows sparse HEVC decoding is the dominant cost and must be
+reassessed with the final artifact before deployment. The remaining blocker is the
+trusted final model bundle and saved training parity cases from the final labeling
+run.
+
+## Final RF training-data compatibility workflow — ready, no model trained (2026-11-18)
+
+The repository now has a Colab-compatible preparation path for merging final COLMAP
+label batches, validating label/input provenance, extracting the production eight
+features from the exact 60 labeled input images, defining leakage-safe evaluation,
+and packaging later-loader parity evidence. It contains no estimator fitting or
+activation step and does not modify any heuristic or viewpoint score.
+
+### Production extractor and parity changes
+
+`registration_features.py` now has two input adapters feeding one shared feature
+computation. The live video adapter is unchanged in meaning. The new COLMAP-frame
+adapter verifies an ordered 60-row manifest, chronological source indices, every
+image's presence and SHA-256, then uniformly selects the configured 16 positions and
+runs the exact same fixed resize, grayscale, ORB, KNN ratio, homography RANSAC,
+formula, aggregation, and feature ordering as production.
+
+The existing model loader and final packager remain backward-compatible with video
+parity cases and now also accept `colmap_frame_manifest` parity cases. A manifest
+case preserves all 60 exact labeled input images; the loader re-extracts the saved
+training vector before joblib can load.
+
+### Training-data bundle workflow
+
+Added:
+
+- `src/video_suitability/ml/registration_training.py`: multi-batch merge, hashed
+  label/result/input validation, fresh feature extraction, exclusions and
+  incompatibility reporting, grouped folds, holdout isolation, parity copying, and
+  a checksum-protected versioned bundle manifest.
+- `scripts/ml/build_registration_training_data.py`: dependency-light Colab/CLI
+  entry point. Repeating `--labels-csv` merges batches; it exits 2 when the audit is
+  written but training readiness gates fail.
+- `evaluation/ml/registration_label_batch_template.csv`: required batch schema for
+  physical `source_group`, capture `variant`, predeclared evaluation role, label
+  provenance, reconstruction evidence, exact frame inputs, fidelity, and canonical
+  sampling-configuration hash.
+- `docs/registration_training_compatibility.md`: Colab commands, schema, acceptance
+  rules, outputs, split policy, and later training handoff.
+- `tests/test_registration_training_data.py`: exact 60-frame determinism/hash gate,
+  missing-frame refusal, two-batch merge, measured success, explicitly verified
+  mapper failure, infrastructure exclusion, source-group folds, independent
+  holdout, loader parity, and preprocessing mismatch reporting.
+
+Successful labels must reconcile their percentage with explicit counts and the
+hashed COLMAP objective metrics. A reconstruction failure is accepted as 0% only
+when the row explicitly says 0/60, `failure_verified=true`, the hashed result says
+`reconstruction_failed`, actual COLMAP commands are recorded, and the stage is a
+mapper/no-sparse-model stage. Infrastructure/unavailable/not-run rows are reported
+as exclusions and never receive zero or fabricated features. Missing frames, bad
+hashes, duplicate records, sampling mismatches, or group leakage make the bundle
+not ready.
+
+All variants from a physical `source_group` remain in one development fold.
+`independent_holdout` groups are predeclared, cannot overlap development groups,
+receive no CV fold, and are explicitly marked excluded from model selection. The
+output separates `development_records.csv` and `independent_holdout_records.csv` and
+stores a dataset fingerprint.
+
+The generated `training_bundle_manifest.json` records
+`contains_trained_model=false` and `activates_production_inference=false`. No
+`model.joblib` or production `artifact_manifest.json` is created.
+
+### Current real-data readiness
+
+The accessible repository has no completed merged label batch. Its only frame
+manifest has 35 data rows, and the corresponding extraction metadata says 35
+requested/extracted frames. Its COLMAP result is `infrastructure_unavailable`.
+Therefore it is intentionally ineligible for this 60-frame training workflow and no
+real training bundle or numerical target was fabricated from it.
+
+Audit command and observed result:
+
+```bash
+find evaluation -name 'frames_manifest.csv' -print -exec wc -l {} \;
+find evaluation -type f \( -iname '*label*.csv' -o -iname '*target*.csv' \) -print
+rg -n '"status":|"extracted_frame_count":|"requested_frame_count":' \
+  evaluation/reconstruction/IMG_3913/colmap/reconstruction_result.json \
+  evaluation/reconstruction/IMG_3913/extraction_metadata.json
+```
+
+Observed: one 36-line manifest (header plus 35 frames), no populated merged label
+CSV, requested/extracted counts of 35, and status `infrastructure_unavailable`.
+
+### Commands and verification
+
+Initial affected-area regression after sharing the production computation:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/video-suitability-pycache PYTHONPATH=src:. \
+  .venv/bin/python -m compileall -q src scripts tests
+PYTHONPATH=src:. .venv/bin/pytest -q \
+  tests/test_registration_training_data.py tests/test_registration_rf.py
+```
+
+The first run exposed that sorted JSON serialization changed parity feature-key
+order. The writer was corrected to preserve the production order; the rerun reported
+`11 passed in 4.85s`.
+
+Final verification:
+
+```bash
+PYTHONPYCACHEPREFIX=/tmp/video-suitability-pycache PYTHONPATH=src:. \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+PYTHONPATH=src:. .venv/bin/python \
+  scripts/ml/build_registration_training_data.py --help
+git diff --check
+PYTHONPATH=src:. .venv/bin/pytest -q
+```
+
+Observed: compileall and diff checks exited 0; the Colab-compatible CLI help rendered;
+and pytest reported `67 passed, 3 skipped in 18.81s`. The unchanged skips are the
+optional scikit-learn/PyTorch training tests because those packages are absent from
+the core environment. No model was trained or activated, no COLMAP run occurred, and
+no GPU/network/dataset download was used.
+

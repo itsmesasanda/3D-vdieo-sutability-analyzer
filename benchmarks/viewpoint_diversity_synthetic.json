@@ -1,0 +1,89 @@
+{
+  "benchmark_scope": "synthetic regression and local CPU timing; not real-world accuracy",
+  "python": "3.9.6",
+  "opencv": "4.14.0",
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "processor": "arm",
+  "config": {
+    "max_samples": 16,
+    "max_analysis_side": 400,
+    "orb_features": 1500
+  },
+  "all_expectations_matched": true,
+  "total_wall_seconds": 1.892937,
+  "total_cpu_seconds": 3.513569,
+  "total_viewpoint_module_wall_seconds": 0.349794,
+  "total_viewpoint_module_cpu_seconds": 0.833215,
+  "results": [
+    {
+      "scenario": "front_only",
+      "expected": "Low",
+      "observed": "Low",
+      "matched_expectation": true,
+      "wall_seconds": 0.566664,
+      "cpu_seconds": 0.789746,
+      "viewpoint_module_wall_seconds": 0.083339,
+      "viewpoint_module_cpu_seconds": 0.207925,
+      "direct_module_label_matched": true,
+      "sampled_frames": 16,
+      "nearby_pairs": 15,
+      "separated_pairs": 13
+    },
+    {
+      "scenario": "quarter_orbit",
+      "expected": "Moderate",
+      "observed": "Moderate",
+      "matched_expectation": true,
+      "wall_seconds": 0.360235,
+      "cpu_seconds": 0.772738,
+      "viewpoint_module_wall_seconds": 0.095984,
+      "viewpoint_module_cpu_seconds": 0.20713,
+      "direct_module_label_matched": true,
+      "sampled_frames": 16,
+      "nearby_pairs": 15,
+      "separated_pairs": 13
+    },
+    {
+      "scenario": "full_orbit",
+      "expected": "High",
+      "observed": "High",
+      "matched_expectation": true,
+      "wall_seconds": 0.422247,
+      "cpu_seconds": 0.848246,
+      "viewpoint_module_wall_seconds": 0.07381,
+      "viewpoint_module_cpu_seconds": 0.19703,
+      "direct_module_label_matched": true,
+      "sampled_frames": 16,
+      "nearby_pairs": 15,
+      "separated_pairs": 13
+    },
+    {
+      "scenario": "pure_rotation",
+      "expected": "Unknown",
+      "observed": "Unknown",
+      "matched_expectation": true,
+      "wall_seconds": 0.355103,
+      "cpu_seconds": 0.773124,
+      "viewpoint_module_wall_seconds": 0.076429,
+      "viewpoint_module_cpu_seconds": 0.199817,
+      "direct_module_label_matched": true,
+      "sampled_frames": 16,
+      "nearby_pairs": 15,
+      "separated_pairs": 13
+    },
+    {
+      "scenario": "blurry",
+      "expected": "Unknown",
+      "observed": "Unknown",
+      "matched_expectation": true,
+      "wall_seconds": 0.188688,
+      "cpu_seconds": 0.329715,
+      "viewpoint_module_wall_seconds": 0.020232,
+      "viewpoint_module_cpu_seconds": 0.021313,
+      "direct_module_label_matched": true,
+      "sampled_frames": 16,
+      "nearby_pairs": 15,
+      "separated_pairs": 13
+    }
+  ]
+}

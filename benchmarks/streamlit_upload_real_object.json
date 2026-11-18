@@ -1,0 +1,66 @@
+{
+  "scope": "Actual app upload payload path; diagnostic rendering measured separately. Single-host timings are not a cross-platform guarantee.",
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "source_sha256_before": "e61c7a0d452933d0829fa0f7d59d1d40c96c6160197fb3cfbb743f60247fb468",
+  "source_sha256_after": "e61c7a0d452933d0829fa0f7d59d1d40c96c6160197fb3cfbb743f60247fb468",
+  "source_unchanged": true,
+  "runs": [
+    {
+      "run": 1,
+      "filename": "IMG_3914.MOV",
+      "object_bbox": [
+        0.0,
+        0.3,
+        0.43,
+        0.69
+      ],
+      "viewpoint_label": "Unknown",
+      "suitability_score": 60.0,
+      "upload_path": {
+        "temporary_file_write_wall_seconds": 0.04952,
+        "temporary_file_write_cpu_seconds": 0.01252,
+        "upload_to_result_wall_seconds": 9.151934,
+        "upload_to_result_cpu_seconds": 38.103702,
+        "diagnostic_rendering_included": false
+      },
+      "pipeline": {
+        "stages": {
+          "frame_decoding_and_sampling": {
+            "wall_seconds": 7.12739,
+            "cpu_seconds": 34.107377
+          },
+          "frame_quality": {
+            "wall_seconds": 0.132258,
+            "cpu_seconds": 0.137883
+          },
+          "orb_feature_extraction": {
+            "wall_seconds": 0.35977,
+            "cpu_seconds": 0.357558
+          },
+          "adjacent_geometry": {
+            "wall_seconds": 1.015382,
+            "cpu_seconds": 2.088622
+          },
+          "object_tracking_and_viewpoint": {
+            "wall_seconds": 0.4645,
+            "cpu_seconds": 1.396651
+          },
+          "scoring_and_problem_segments": {
+            "wall_seconds": 0.000452,
+            "cpu_seconds": 0.000453
+          }
+        },
+        "total_wall_seconds": 9.099874,
+        "total_cpu_seconds": 38.088647,
+        "scope": "Production analysis only; upload I/O and diagnostic rendering are measured separately."
+      },
+      "deferred_diagnostic_rendering": {
+        "frame_count": 6,
+        "wall_seconds": 5.634101,
+        "cpu_seconds": 25.983966
+      }
+    }
+  ],
+  "mean_upload_to_result_wall_seconds": 9.151934,
+  "mean_deferred_diagnostic_wall_seconds": 5.634101
+}

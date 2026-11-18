@@ -1,0 +1,4 @@
+filename,scenario,object_id,bbox_x,bbox_y,bbox_width,bbox_height,notes
+IMG_3913.MOV,unlabeled_real_capture,night_bottle,0.40,0.35,0.50,0.64,"Middle frame: bottle centered low; capture protocol has no verified diversity label."
+IMG_3914.MOV,unlabeled_real_capture,night_bottle,0.00,0.30,0.43,0.69,"Middle frame: bottle is partly cropped at the left edge and visibly blurred."
+IMG_3915.MOV,unlabeled_real_capture,night_bottle,0.00,0.25,0.52,0.74,"Middle frame: bottle is at the left edge with substantial motion blur."

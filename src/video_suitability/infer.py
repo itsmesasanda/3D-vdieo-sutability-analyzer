@@ -5,12 +5,15 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+import time
 from pathlib import Path
-from typing import Any, Dict, Optional, Sequence
+from typing import Any, Callable, Dict, Mapping, Optional, Sequence, TypeVar
 
 from . import __version__
 from .config import AnalysisConfig
-from .geometry import analyze_geometry
+from .geometry import analyze_geometry, detect_orb_features
+from .ml.registration_rf import attach_registration_prediction
+from .object_focus import analyze_object_focused_viewpoint, normalize_object_bbox
 from .quality import analyze_quality
 from .scoring import (
     build_problem_segments,
@@ -19,6 +22,10 @@ from .scoring import (
     score_analysis_v2,
 )
 from .video import VideoError, sample_video
+from .viewpoint import analyze_viewpoint_diversity
+
+
+T = TypeVar("T")
 
 
 ANALYSIS_METHOD = {
@@ -32,6 +39,7 @@ ANALYSIS_METHOD = {
         "ORB correspondence with RANSAC geometric verification",
         "timestamp-aware optical flow and track retention",
         "overlap, motion regularity, and cautious rotation/parallax proxies",
+        "standalone multi-gap estimated viewpoint-diversity classification",
     ],
 }
 
@@ -39,37 +47,100 @@ ANALYSIS_METHOD = {
 def analyze_video(
     video_path: str,
     config: Optional[AnalysisConfig] = None,
+    camera_intrinsics: Optional[Mapping[str, float]] = None,
+    object_bbox: Optional[Sequence[float]] = None,
+    include_performance_profile: bool = False,
 ) -> Dict[str, Any]:
     """Analyze a local video and return a JSON-serializable heuristic report."""
 
     cfg = config or AnalysisConfig()
     cfg.validate()
-    sampled = sample_video(Path(video_path), cfg)
-    quality = analyze_quality(
-        sampled.frames, sampled.frame_indices, sampled.timestamps_seconds
+    normalized_object_bbox = (
+        normalize_object_bbox(object_bbox) if object_bbox is not None else None
     )
-    geometry = analyze_geometry(
-        sampled.frames,
-        sampled.frame_indices,
-        sampled.timestamps_seconds,
-        cfg,
+    profile: Dict[str, Any] = {"stages": {}}
+    total_wall_started = time.perf_counter()
+    total_cpu_started = time.process_time()
+
+    def measured(name: str, operation: Callable[[], T]) -> T:
+        wall_started = time.perf_counter()
+        cpu_started = time.process_time()
+        value = operation()
+        profile["stages"][name] = {
+            "wall_seconds": round(time.perf_counter() - wall_started, 6),
+            "cpu_seconds": round(time.process_time() - cpu_started, 6),
+        }
+        return value
+
+    sampled = measured("frame_decoding_and_sampling", lambda: sample_video(Path(video_path), cfg))
+    quality = measured(
+        "frame_quality",
+        lambda: analyze_quality(
+            sampled.frames, sampled.frame_indices, sampled.timestamps_seconds
+        ),
     )
-    baseline_v1 = score_analysis_v1(
-        quality, geometry, len(sampled.frames), cfg
+    detected_features = measured(
+        "orb_feature_extraction",
+        lambda: detect_orb_features(sampled.frames, cfg),
     )
-    score = score_analysis_v2(
-        quality, geometry, sampled.metadata, len(sampled.frames), cfg
+    geometry = measured(
+        "adjacent_geometry",
+        lambda: analyze_geometry(
+            sampled.frames,
+            sampled.frame_indices,
+            sampled.timestamps_seconds,
+            cfg,
+            detected_features=detected_features,
+        ),
     )
-    problem_segments = build_problem_segments(
-        quality["frames"], geometry["pairs"]
+    object_geometry: Optional[Dict[str, Any]] = None
+    if normalized_object_bbox is None:
+        viewpoint_diversity = measured(
+            "whole_frame_viewpoint",
+            lambda: analyze_viewpoint_diversity(
+                sampled.frames,
+                sampled.frame_indices,
+                sampled.timestamps_seconds,
+                quality["summary"],
+                geometry,
+                cfg,
+                detected_features=detected_features,
+                camera_intrinsics=camera_intrinsics,
+            ),
+        )
+    else:
+        viewpoint_diversity, object_geometry = measured(
+            "object_tracking_and_viewpoint",
+            lambda: analyze_object_focused_viewpoint(
+                sampled.frames,
+                sampled.frame_indices,
+                sampled.timestamps_seconds,
+                quality["summary"],
+                geometry,
+                detected_features,
+                normalized_object_bbox,
+                cfg,
+                camera_intrinsics=camera_intrinsics,
+            ),
+        )
+
+    def build_scores_and_segments() -> Any:
+        baseline = score_analysis_v1(quality, geometry, len(sampled.frames), cfg)
+        current = score_analysis_v2(
+            quality, geometry, sampled.metadata, len(sampled.frames), cfg
+        )
+        segments = build_problem_segments(quality["frames"], geometry["pairs"])
+        return baseline, current, segments, recommendations_for(segments)
+
+    baseline_v1, score, problem_segments, recommendations = measured(
+        "scoring_and_problem_segments", build_scores_and_segments
     )
-    recommendations = recommendations_for(problem_segments)
 
     warnings = [
         "The overall score is a declared heuristic, not an ML prediction or calibrated probability.",
         "No 3D reconstruction was run; this tool estimates input suitability only.",
         "Motion and parallax measurements are image-space proxies and cannot prove camera translation or a static subject.",
-        "No trained and independently validated model artifact is configured, so no ML score is reported.",
+        "Any separately attached ML prediction is not part of this heuristic score or its subscores.",
     ]
     warnings.extend(sampled.warnings)
     geometry_summary = geometry["summary"]
@@ -110,6 +181,14 @@ def analyze_video(
         warnings.append(
             "The source has a short side below 480 pixels. Fine surface detail may be limited, but resolution alone did not trigger a score cap."
         )
+    if normalized_object_bbox is not None:
+        warnings.append(
+            "The viewpoint category uses the optional selected object region; the suitability score still uses unchanged whole-frame metrics."
+        )
+        for reason in viewpoint_diversity.get("decision_explanation", {}).get(
+            "insufficient_evidence_reasons", []
+        ):
+            warnings.append(f"Object-focused viewpoint evidence: {reason}")
 
     report: Dict[str, Any] = {
         "schema_version": "1.0",
@@ -174,11 +253,26 @@ def analyze_video(
             "sampled_frame_quality": quality["frames"],
             "sampled_frame_features": geometry["frames"],
             "sampled_pair_geometry": geometry["pairs"],
+            "object_geometry_summary": (
+                object_geometry["summary"] if object_geometry is not None else None
+            ),
         },
         "problem_segments": problem_segments,
         "recommendations": recommendations,
         "warnings": list(dict.fromkeys(warnings)),
+        "viewpoint_diversity": viewpoint_diversity,
     }
+    if include_performance_profile:
+        profile["total_wall_seconds"] = round(
+            time.perf_counter() - total_wall_started, 6
+        )
+        profile["total_cpu_seconds"] = round(
+            time.process_time() - total_cpu_started, 6
+        )
+        profile["scope"] = (
+            "Production analysis only; upload I/O and diagnostic rendering are measured separately."
+        )
+        report["performance_profile"] = profile
     return report
 
 
@@ -218,6 +312,37 @@ def build_parser() -> argparse.ArgumentParser:
         help="Maximum analysis-frame side in pixels (160-1920; default: 640)",
     )
     parser.add_argument("--compact", action="store_true", help="Write compact JSON")
+    parser.add_argument("--camera-fx", type=float, help="Camera focal length fx in pixels")
+    parser.add_argument("--camera-fy", type=float, help="Camera focal length fy in pixels")
+    parser.add_argument("--camera-cx", type=float, help="Camera principal point cx in pixels")
+    parser.add_argument("--camera-cy", type=float, help="Camera principal point cy in pixels")
+    parser.add_argument(
+        "--intrinsics-width",
+        type=float,
+        help="Image width for the supplied intrinsics; omit only if they already match analysis frames",
+    )
+    parser.add_argument(
+        "--intrinsics-height",
+        type=float,
+        help="Image height for the supplied intrinsics; omit only if they already match analysis frames",
+    )
+    parser.add_argument(
+        "--object-bbox",
+        help="Optional normalized object box as x,y,width,height on the middle sampled frame",
+    )
+    parser.add_argument(
+        "--profile",
+        action="store_true",
+        help="Include per-stage wall and process CPU timings in the JSON report",
+    )
+    parser.add_argument(
+        "--registration-artifact",
+        type=Path,
+        help=(
+            "Optional parity-gated Random Forest artifact for a separate predicted "
+            "COLMAP image-registration percentage"
+        ),
+    )
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser
 
@@ -234,7 +359,58 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             max_samples=args.max_samples,
             max_analysis_side=args.max_side,
         )
-        report = analyze_video(args.video, config=config)
+        intrinsic_values = [args.camera_fx, args.camera_fy, args.camera_cx, args.camera_cy]
+        if any(value is not None for value in intrinsic_values) and not all(
+            value is not None for value in intrinsic_values
+        ):
+            raise ValueError(
+                "--camera-fx, --camera-fy, --camera-cx, and --camera-cy must be supplied together"
+            )
+        if (args.intrinsics_width is None) != (args.intrinsics_height is None):
+            raise ValueError("--intrinsics-width and --intrinsics-height must be supplied together")
+        if args.intrinsics_width is not None and not all(
+            value is not None for value in intrinsic_values
+        ):
+            raise ValueError("intrinsic image dimensions require camera intrinsic values")
+        camera_intrinsics = None
+        if all(value is not None for value in intrinsic_values):
+            camera_intrinsics = {
+                "fx": args.camera_fx,
+                "fy": args.camera_fy,
+                "cx": args.camera_cx,
+                "cy": args.camera_cy,
+            }
+            if args.intrinsics_width is not None:
+                camera_intrinsics.update(
+                    {
+                        "image_width": args.intrinsics_width,
+                        "image_height": args.intrinsics_height,
+                    }
+                )
+        object_bbox = None
+        if args.object_bbox:
+            try:
+                object_bbox = [
+                    float(value.strip()) for value in args.object_bbox.split(",")
+                ]
+            except ValueError as exc:
+                raise ValueError(
+                    "--object-bbox must be four comma-separated numbers"
+                ) from exc
+            object_bbox = list(normalize_object_bbox(object_bbox))
+        report = analyze_video(
+            args.video,
+            config=config,
+            camera_intrinsics=camera_intrinsics,
+            object_bbox=object_bbox,
+            include_performance_profile=args.profile,
+        )
+        if args.registration_artifact is not None:
+            report = attach_registration_prediction(
+                report,
+                Path(args.video),
+                artifact_dir=args.registration_artifact,
+            )
         indent = None if args.compact else 2
         if output_path is not None:
             write_report(report, output_path, indent=indent)

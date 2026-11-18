@@ -1,0 +1,58 @@
+{
+  "schema_version": "colmap_registration_opencv8/1.0",
+  "implementation": "video_suitability.ml.registration_features.extract/v1",
+  "feature_names_in_order": [
+    "mean_brightness",
+    "mean_contrast",
+    "mean_sharpness",
+    "mean_orb_keypoints",
+    "mean_frame_difference",
+    "mean_orb_good_matches",
+    "mean_orb_match_ratio",
+    "mean_orb_ransac_inlier_ratio"
+  ],
+  "frame_sampling": {
+    "strategy": "uniform_round_linspace_full_video",
+    "sample_count": 16
+  },
+  "resize": {
+    "mode": "fixed_size",
+    "width": 320,
+    "height": 240,
+    "interpolation": "INTER_AREA"
+  },
+  "grayscale_conversion": "cv2.COLOR_BGR2GRAY",
+  "orb": {
+    "nfeatures": 1000,
+    "scaleFactor": 1.2,
+    "nlevels": 8,
+    "edgeThreshold": 31,
+    "firstLevel": 0,
+    "WTA_K": 2,
+    "scoreType": "HARRIS_SCORE",
+    "patchSize": 31,
+    "fastThreshold": 20,
+    "rng_seed": 42
+  },
+  "matching": {
+    "matcher": "BFMatcher_HAMMING_KNN",
+    "k": 2,
+    "lowe_ratio": 0.75,
+    "match_ratio_denominator": "min_descriptor_count"
+  },
+  "geometric_verification": {
+    "model": "homography_ransac",
+    "reprojection_threshold_px": 3.0
+  },
+  "aggregation": "arithmetic_mean_including_zero_match_pairs",
+  "formula_contract": {
+    "brightness": "mean(gray)",
+    "contrast": "std(gray)",
+    "sharpness": "var(Laplacian(gray,CV_64F))",
+    "orb_keypoints": "len(ORB.detectAndCompute.keypoints)",
+    "frame_difference": "mean(abs(float32(gray_t1)-float32(gray_t0)))",
+    "good_matches": "count(m.distance < lowe_ratio*n.distance)",
+    "match_ratio": "good_matches/min(len(desc_t0),len(desc_t1))",
+    "ransac_inlier_ratio": "homography_ransac_inliers/good_matches"
+  }
+}

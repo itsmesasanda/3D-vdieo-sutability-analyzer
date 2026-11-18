@@ -1,0 +1,70 @@
+{
+  "scope": "Local CPU timing. Feature-only mode does not imply a trained prediction or real-world model accuracy.",
+  "platform": "macOS-14.5-arm64-arm-64bit",
+  "video": "data/samples/real_tests/orbit_good.mp4",
+  "source_sha256_before": "3bdaf72d2d83ed49cc51c6c05f29264de751c4d909ab3af4e2b5c24915364976",
+  "source_sha256_after": "3bdaf72d2d83ed49cc51c6c05f29264de751c4d909ab3af4e2b5c24915364976",
+  "source_unchanged": true,
+  "run_count": 3,
+  "mean_wall_seconds": 0.260569,
+  "mean_cpu_seconds": 0.347153,
+  "runs": [
+    {
+      "run": 1,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 0.509813,
+      "cpu_seconds": 0.432185,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 186.62809244791669,
+        "mean_contrast": 50.15807306364202,
+        "mean_sharpness": 666.9303711154196,
+        "mean_orb_keypoints": 887.6875,
+        "mean_frame_difference": 8.460203202565511,
+        "mean_orb_good_matches": 626.1333333333333,
+        "mean_orb_match_ratio": 0.7076614219328604,
+        "mean_orb_ransac_inlier_ratio": 0.945439641316028
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    },
+    {
+      "run": 2,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 0.135002,
+      "cpu_seconds": 0.303458,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 186.62809244791669,
+        "mean_contrast": 50.15807306364202,
+        "mean_sharpness": 666.9303711154196,
+        "mean_orb_keypoints": 887.6875,
+        "mean_frame_difference": 8.460203202565511,
+        "mean_orb_good_matches": 626.1333333333333,
+        "mean_orb_match_ratio": 0.7076614219328604,
+        "mean_orb_ransac_inlier_ratio": 0.945439641316028
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    },
+    {
+      "run": 3,
+      "mode": "feature_extraction_only_no_trained_model",
+      "wall_seconds": 0.136893,
+      "cpu_seconds": 0.305817,
+      "status": "features_only",
+      "features": {
+        "mean_brightness": 186.62809244791669,
+        "mean_contrast": 50.15807306364202,
+        "mean_sharpness": 666.9303711154196,
+        "mean_orb_keypoints": 887.6875,
+        "mean_frame_difference": 8.460203202565511,
+        "mean_orb_good_matches": 626.1333333333333,
+        "mean_orb_match_ratio": 0.7076614219328604,
+        "mean_orb_ransac_inlier_ratio": 0.945439641316028
+      },
+      "sample_count": 16,
+      "pair_count": 15
+    }
+  ]
+}
