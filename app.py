@@ -18,6 +18,7 @@ from video_suitability.ml.experimental_ridge import (
     attach_experimental_ridge_prediction,
 )
 from video_suitability.presentation import (
+    capture_completeness_view,
     component_rows,
     extract_problem_frames,
     load_evaluation_rows,
@@ -400,6 +401,46 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
         st.caption(
             "This category does not measure exact orbit angle or the percentage of object surface captured."
         )
+
+
+def _capture_completeness(st: Any, report: Dict[str, Any]) -> None:
+    """Render isolated capture guidance without exposing optional failures."""
+
+    try:
+        view = capture_completeness_view(report)
+    except Exception:
+        st.warning(
+            "Experimental capture guidance is unavailable. The heuristic, Ridge, "
+            "and viewpoint results remain unchanged."
+        )
+        return
+    style = view.get("style") if isinstance(view.get("style"), dict) else {}
+    st.markdown(
+        f"""
+        <div class="viewpoint-panel">
+          <div class="eyebrow">Experimental guidance · does not change any score</div>
+          <h3>Object Capture Completeness <span class="viewpoint-label" style="background:{style.get('color', '#6f7f7c')}">{html.escape(str(view.get('label', 'Capture coverage not verified')))}</span></h3>
+          <p>{html.escape(str(view.get('summary') or 'Capture guidance is unavailable.'))}</p>
+          <div class="evidence-grid">
+            <div class="evidence-item"><span>Tracked object timeline</span><strong>{_display_metric(view.get('tracking_percent'))}</strong></div>
+            <div class="evidence-item"><span>Object view variation</span><strong>{html.escape(str(view.get('view_variation_label', 'Not verified')))}</strong></div>
+            <div class="evidence-item"><span>Higher / lower views</span><strong>{html.escape(str(view.get('elevation_label', 'Not verified')))}</strong></div>
+            <div class="evidence-item"><span>Capture motion pattern</span><strong>{html.escape(str(view.get('capture_mode_label', 'Uncertain')))}</strong></div>
+          </div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.expander(
+        "Capture guidance and limitations",
+        expanded=view.get("status") in {"not_verified", "limited_view_evidence"},
+    ):
+        st.write(f"**Higher/lower view evidence:** {view.get('elevation_reason')}")
+        st.write(f"**Capture-mode evidence:** {view.get('capture_mode_reason')}")
+        for suggestion in view.get("suggestions", []):
+            st.write(f"- {suggestion}")
+        for limitation in view.get("limitations", []):
+            st.caption(f"• {limitation}")
 
 
 def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
@@ -785,6 +826,9 @@ def _analysis_view(st: Any) -> None:
         st.caption(
             "Experimental and separate from the suitability score. It adds long-gap geometric checks and may return Unknown when evidence is insufficient."
         )
+        st.caption(
+            "Experimental capture-completeness guidance reuses this evidence. Object-specific guidance requires a reliably tracked object region."
+        )
         include_viewpoint_diversity = st.checkbox(
             "Run experimental viewpoint-diversity analysis",
             value=False,
@@ -922,6 +966,7 @@ def _analysis_view(st: Any) -> None:
             "This category is intentionally separate and cannot change the suitability score.",
         )
         _viewpoint_diversity(st, report)
+        _capture_completeness(st, report)
         _experimental_ridge_prediction(st, report)
         _registration_prediction(st, report)
         _uncertainty(st, report)

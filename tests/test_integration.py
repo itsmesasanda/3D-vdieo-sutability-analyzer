@@ -17,6 +17,7 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "recommendations",
     "warnings",
     "viewpoint_diversity",
+    "capture_completeness",
 }
 
 

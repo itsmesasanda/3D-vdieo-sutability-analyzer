@@ -1845,3 +1845,34 @@ truth. The Colab CPU runbook is in
 The final full suite reported `112 passed, 2 skipped in 112.05s`; the two skips are
 the unchanged optional PyTorch tests. Compileall and `git diff --check` exited 0.
 
+## Experimental object capture completeness — implemented (2026-11-19)
+
+Added an isolated capture-guidance result that reuses object-focused tracking,
+long-gap ORB/RANSAC evidence, parallax proxies, repeated views, and the existing
+object/background comparison. It runs no new feature matching and cannot change the
+heuristic score, Ridge estimate, Random Forest result, or viewpoint category.
+
+The panel reports `Limited viewpoint variation`, `Multiple object viewpoints
+detected`, or `Capture coverage not verified`. Higher/lower viewing angles remain
+`Not verified`: current image-space evidence cannot establish a reliable
+object-relative elevation path. It never names front/back/top/bottom, estimates an
+orbit angle, claims 360-degree completion, or reports a surface-coverage percentage.
+
+The animated-hand control remained score 56.60 and viewpoint Unknown; 50% object
+tracking produced `Capture coverage not verified` in 1.259257 s total. Existing
+`IMG_3913.MOV` remained score 78.54 and viewpoint Unknown; 3% tracking conservatively
+produced `Capture coverage not verified` in 14.670735 s. The requested rice-cooker
+and matching front-only real files were not present in the workspace or Downloads,
+so no result is claimed for those recordings.
+
+Synthetic object-focused results were: front-only `Limited`; quarter-orbit and
+full-orbit `Multiple object viewpoints detected`; pure rotation, animated object,
+and blurry `Capture coverage not verified`. Full pipeline times were 0.29–0.72 s.
+The pure summary step averaged about 0.0036 ms over 10,000 calls, so the panel adds
+negligible CPU work compared with existing decoding and geometry.
+
+Final verification commands were `compileall`, `git diff --check`, the Streamlit
+deployment preflight, and the full pytest suite. Compilation/diff checks exited 0,
+deployment preflight reported PASS, and the final pytest run reported `119 passed,
+2 skipped in 145.96s`; the skips are the unchanged optional PyTorch tests.
+

@@ -199,6 +199,8 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
         "Low": {"color": "#df5b5b", "tone": "negative"},
         "Unknown": {"color": "#6f7f7c", "tone": "neutral"},
     }
+
+
     raw_indicators = result.get("indicators", {})
     raw_tracking = result.get("object_tracking", {})
     raw_background = result.get("background_diagnostics", {})
@@ -254,6 +256,64 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "mixed_motion_percent": _optional_percentage(
             indicators.get("mixed_static_dynamic_pair_fraction")
+        ),
+    }
+
+
+def capture_completeness_view(report: Dict[str, Any]) -> Dict[str, Any]:
+    """Build the isolated experimental capture-guidance view model."""
+
+    raw = report.get("capture_completeness", {})
+    result: Mapping[str, Any] = raw if isinstance(raw, Mapping) else {}
+    variation_raw = result.get("view_variation", {})
+    elevation_raw = result.get("elevation_variation", {})
+    mode_raw = result.get("capture_mode", {})
+    method_raw = result.get("method", {})
+    variation = variation_raw if isinstance(variation_raw, Mapping) else {}
+    elevation = elevation_raw if isinstance(elevation_raw, Mapping) else {}
+    mode = mode_raw if isinstance(mode_raw, Mapping) else {}
+    method = method_raw if isinstance(method_raw, Mapping) else {}
+    suggestions = result.get("suggestions", [])
+    limitations = result.get("limitations", [])
+    status = str(result.get("status", "not_verified"))
+    styles = {
+        "varied_view_evidence": {"color": "#237a62", "tone": "positive"},
+        "limited_view_evidence": {"color": "#a86816", "tone": "warning"},
+        "not_verified": {"color": "#6f7f7c", "tone": "neutral"},
+    }
+    return {
+        "status": status,
+        "label": result.get("label", "Capture coverage not verified"),
+        "summary": result.get(
+            "summary", "Experimental capture guidance is unavailable."
+        ),
+        "style": styles.get(status, styles["not_verified"]),
+        "tracking_percent": result.get("tracking_percent"),
+        "view_variation_label": variation.get("label", "Not verified"),
+        "substantial_change_percent": variation.get(
+            "substantial_change_percent"
+        ),
+        "parallax_proxy_percent": variation.get("parallax_proxy_percent"),
+        "elevation_label": elevation.get("label", "Not verified"),
+        "elevation_reason": elevation.get("reason", "Not available"),
+        "capture_mode_label": mode.get(
+            "label", "Camera orbit versus object rotation: uncertain"
+        ),
+        "capture_mode_reason": mode.get("reason", "Not available"),
+        "suggestions": list(suggestions)
+        if isinstance(suggestions, (list, tuple))
+        else [],
+        "limitations": list(limitations)
+        if isinstance(limitations, (list, tuple))
+        else [],
+        "affects_suitability_score": bool(
+            method.get("affects_suitability_score", False)
+        ),
+        "affects_ridge_prediction": bool(
+            method.get("affects_ridge_prediction", False)
+        ),
+        "affects_viewpoint_classification": bool(
+            method.get("affects_viewpoint_classification", False)
         ),
     }
 

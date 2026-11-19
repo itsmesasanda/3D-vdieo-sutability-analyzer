@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping, Optional, Sequence, TypeVar
 
 from . import __version__
+from .capture_completeness import analyze_capture_completeness
 from .config import AnalysisConfig
 from .geometry import analyze_geometry, detect_orb_features
 from .ml.registration_rf import attach_registration_prediction
@@ -236,6 +237,42 @@ def analyze_video(
         ):
             warnings.append(f"Object-focused viewpoint evidence: {reason}")
 
+    try:
+        capture_completeness = analyze_capture_completeness(viewpoint_diversity)
+    except Exception as exc:
+        # This optional presentation-oriented experiment must never invalidate the
+        # existing heuristic or viewpoint report.
+        capture_completeness = {
+            "schema_version": "experimental_capture_completeness/1.0",
+            "status": "not_verified",
+            "label": "Capture coverage not verified",
+            "summary": (
+                "Experimental capture guidance was unavailable without affecting "
+                f"the existing results: {type(exc).__name__}."
+            ),
+            "view_variation": {"status": "not_verified", "label": "Not verified"},
+            "elevation_variation": {
+                "status": "not_measured",
+                "label": "Not verified",
+                "reason": "Directional coverage evidence is unavailable.",
+            },
+            "capture_mode": {
+                "status": "uncertain",
+                "label": "Camera orbit versus object rotation: uncertain",
+                "reason": "Capture-mode evidence is unavailable.",
+            },
+            "suggestions": [],
+            "limitations": [
+                "No exact orbit angle, named side, or surface coverage is inferred."
+            ],
+            "method": {
+                "name": "existing_object_viewpoint_evidence_summary",
+                "affects_suitability_score": False,
+                "affects_ridge_prediction": False,
+                "affects_viewpoint_classification": False,
+            },
+        }
+
     report: Dict[str, Any] = {
         "schema_version": "1.0",
         "analysis_method": ANALYSIS_METHOD,
@@ -307,6 +344,7 @@ def analyze_video(
         "recommendations": recommendations,
         "warnings": list(dict.fromkeys(warnings)),
         "viewpoint_diversity": viewpoint_diversity,
+        "capture_completeness": capture_completeness,
     }
     if include_performance_profile:
         profile["total_wall_seconds"] = round(

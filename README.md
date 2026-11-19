@@ -137,6 +137,10 @@ The stable top-level fields are:
   indicators, optional object tracking and separate background diagnostics,
   decision explanations, limitations, and filming recommendations. It explicitly records
   `affects_overall_score: false` and `colmap_run: false`.
+- `capture_completeness`: experimental object-focused guidance derived from the
+  existing viewpoint evidence. It reports limited/multiple-view evidence or
+  `Capture coverage not verified`; it never reports exact sides, orbit angle, or
+  surface coverage and cannot change any existing result.
 - `registration_prediction` in Streamlit or the opt-in CLI reports a separate
   predicted COLMAP registered-image percentage only after artifact hashes, target
   semantics, the exact eight-feature contract, and saved-training-example parity
@@ -327,6 +331,8 @@ provides:
   domain-shift and missing-held-out-validation warnings;
 - optional middle-frame object selection, tracked object-only viewpoint evidence,
   background-contamination diagnostics, and a clear Unknown reason on track loss;
+- conservative capture-completeness guidance, with higher/lower views explicitly
+  marked `Not verified` when directional evidence is unavailable;
 - a filterable timestamped problem timeline and representative problem frames;
 - what/where/why/action guidance for blur, exposure, overlap, tracking, shake,
   excessive motion, weak viewpoint change, and other detected issues;
@@ -505,6 +511,7 @@ src/video_suitability/
   quality.py     exposure, contrast, blur and texture measurements
   geometry.py    ORB matching, RANSAC verification, overlap/motion proxies
   viewpoint.py   independent multi-gap viewpoint-diversity evidence and category
+  capture_completeness.py  isolated conservative object-view guidance
   object_focus.py  optional box tracking, object/background feature separation
   scoring.py     declared heuristic, uncertainty, segments, recommendations
   presentation.py  tested UI view models, guidance, evaluation join, problem frames
