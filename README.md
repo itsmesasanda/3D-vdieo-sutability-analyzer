@@ -18,7 +18,11 @@ multiple COLMAP label batches, verifies the exact 60-image inputs and provenance
 extracts fresh production-compatible features, creates physical-source grouped CV
 folds and a predeclared independent holdout, and packages loader-compatible parity
 examples. Infrastructure failures are excluded rather than converted to zero. See
-[the compatibility workflow](docs/registration_training_compatibility.md).
+[the compatibility workflow](docs/registration_training_compatibility.md). Historical
+Colab outputs can first be audited and normalized with the read-only
+[Colab label importer](docs/colab_label_compatibility_audit.md). The supplied real
+60-frame archive and its current evidence gaps are documented in the
+[real dataset audit](docs/real_colmap_csv_dataset_audit.md).
 
 The production heuristic does **not** reconstruct a 3D model, upload the video, or
 claim an ML prediction. A separate Milestone 3A experiment can run an installed
@@ -437,6 +441,9 @@ src/video_suitability/
   ml/             schemas, splits, metrics, RF, ResNet cache, LSTM, artifacts
     registration_features.py  strict eight-feature OpenCV contract
     registration_rf.py  artifact hashes, parity gate, loading and prediction
+    r1_regeneration.py  executed R1 60-frame camera-path reproduction
+    colab_label_import.py  evidence-gated historical Colab label adapter
+    colmap_archive_audit.py  read-only real 60-frame archive inventory
 scripts/generate_test_videos.py
 scripts/benchmark_video_analysis.py
 scripts/benchmark_viewpoint_diversity.py
@@ -446,10 +453,17 @@ scripts/benchmark_registration_rf.py
 scripts/validate_viewpoint_real_videos.py
 scripts/compare_object_focused_validation.py
 scripts/ml/                        dataset, training, Colab notebook tools
+  audit_colmap_csv_archive.py  reproduce the real archive audit/manifests
+  import_colab_registration_labels.py  historical output audit/import
   build_registration_training_data.py  merged-label audit and exact feature bundle
+  build_experimental_registration_training_notebook.py  reproducible final Colab workflow
+  executed_regeneration_adapter_template.py  deliberately unimplemented evidence adapter
+  run_r1_feature_pilot.py  three-record R1 regeneration and production features
 scripts/reconstruction/        frame extraction, environment audit, sparse COLMAP runner
 notebooks/colmap_reconstruction_colab.ipynb
 notebooks/ml_training_colab.ipynb
+notebooks/experimental_registration_training_colab.ipynb
+notebooks/r1_regeneration_pilot_colab.ipynb
 tests/
 docs/notebook_audit.md
 docs/scoring_v2_audit.md
@@ -459,6 +473,10 @@ docs/viewpoint_diversity.md
 docs/object_focused_validation.md
 docs/registration_random_forest.md
 docs/registration_training_compatibility.md
+docs/colab_label_compatibility_audit.md
+docs/real_colmap_csv_dataset_audit.md
+docs/experimental_registration_training.md
+docs/r1_regeneration_pilot.md
 evaluation/viewpoint_real_validation/  derived real-video CSV and audit
 evaluation/object_focused_validation/  manifests and whole/object comparison
 evaluation/
@@ -496,6 +514,10 @@ See [the viewpoint-diversity audit](docs/viewpoint_diversity.md),
 [the object-focused validation audit](docs/object_focused_validation.md),
 [the Random Forest integration audit](docs/registration_random_forest.md),
 [the training-data compatibility workflow](docs/registration_training_compatibility.md),
+[the Colab label compatibility audit](docs/colab_label_compatibility_audit.md),
+[the real 60-frame CSV dataset audit](docs/real_colmap_csv_dataset_audit.md),
+[the experimental registration-model training runbook](docs/experimental_registration_training.md),
+[the R1 regeneration pilot](docs/r1_regeneration_pilot.md),
 [the notebook audit](docs/notebook_audit.md),
 [the v2 scoring audit](docs/scoring_v2_audit.md), and [STATUS.md](STATUS.md) for
 actual executed commands and results.

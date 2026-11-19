@@ -1,0 +1,6 @@
+scope,required_small_file,reason
+global,CO3D dataset/version manifest with frame_annotations.jgz and sequence_annotations.jgz SHA-256 values,pins source ordering and source identity without downloading COLMAP workspaces
+Original,original labels_60f_combined.csv plus original source-selection/transformation manifest,the archive contains these 45 rows only through cumulative exports
+"A,B",candidate manifest whose SHA-256 is 4a8793f16327406b318e5d6f8013fa879b533a67ab4c221f1c5a13b17289ea3d,assignment JSON names only categories; source identifiers need crosscheck
+"Original,A,B,C,D,E,F,R1,R2,R3",exact executed notebook/script revision and batch sampling/transformation config,transformed and temporal-window variants cannot be regenerated from names alone
+independent_holdout,"holdout assignment manifest with exact physical CO3D source sequence IDs for bicycle,bowl,cake,plant,toyplane",the ZIP reserves only category names; exact holdout source IDs are absent

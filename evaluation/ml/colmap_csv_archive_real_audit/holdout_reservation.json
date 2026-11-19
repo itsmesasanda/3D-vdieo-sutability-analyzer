@@ -1,0 +1,12 @@
+{
+  "exact_physical_source_ids_available": false,
+  "identifier_kind": "category_names_only",
+  "present_in_selected_training_rows": [],
+  "reserved_identifiers_from_assignment": [
+    "bicycle",
+    "bowl",
+    "cake",
+    "plant",
+    "toyplane"
+  ]
+}

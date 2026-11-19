@@ -1298,3 +1298,203 @@ optional scikit-learn/PyTorch training tests because those packages are absent f
 the core environment. No model was trained or activated, no COLMAP run occurred, and
 no GPU/network/dataset download was used.
 
+## Historical Colab label compatibility audit — implemented (2026-11-19)
+
+The reference CO3D labeling notebook, persistent reconstruction notebook, production
+60-frame contract, locally accessible reconstruction artifacts, and connected Drive
+inventory were audited. The checked-in reference notebook uses 16 COLMAP images,
+floor-truncated linspace sampling, no frame manifest/hashes, and a composite
+`quality_score` distinct from the registration target. The persistent phone-video
+notebook verifies hashes and saves result evidence but uses 35 images. Neither is
+directly eligible for the exact 60-image final target.
+
+The connected Drive account did not expose the original 45 labels or A–G/R1–R3
+batch folders, so no result has been claimed for actual Batch C. The limitation and
+the exact Drive collection procedure are recorded in
+`docs/colab_label_compatibility_audit.md`.
+
+Added `colab_label_import.py` and
+`scripts/ml/import_colab_registration_labels.py`. The importer keeps source files
+read-only, reconciles CSV metrics with per-record reconstruction JSON, requires
+60 inputs, excludes infrastructure failures, retains physical-source/variant/label
+provenance, distinguishes original notebook hashes from import-time hashes and
+CO3D regeneration, and emits canonical label rows plus an acceptance audit. Missing
+CO3D inputs can be regenerated only with a declared supported algorithm and a
+hashed notebook/config file proving it; the result is never described as original
+hash verification.
+
+The production label contract now makes `source_group_provenance` and
+`input_hash_provenance` mandatory. A schema-faithful completed-batch fixture produced
+one accepted row (45/60 = 75%), one incompatible 16-frame rejection, and one
+infrastructure exclusion. The accepted regenerated row passed the downstream
+production manifest/hash/sampling/eight-feature checks. This fixture is a contract
+test, not evidence that inaccessible Batch C passes.
+
+Final verification commands:
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+.venv/bin/python scripts/ml/import_colab_registration_labels.py --help
+.venv/bin/python scripts/ml/build_registration_training_data.py --help
+git diff --check
+.venv/bin/python -m pytest -q
+```
+
+Observed: both CLI help commands rendered, compileall and `git diff --check` exited
+0, and the full suite reported `69 passed, 3 skipped in 18.82s`. The unchanged skips
+are optional scikit-learn/PyTorch tests because those packages are absent. No model
+was trained or activated, COLMAP was not run, source label/reconstruction files were
+not modified, and no CO3D or other large data was downloaded.
+
+## Real 60-frame COLMAP CSV archive audit — complete, evidence retrieval pending (2026-11-19)
+
+The supplied `csv files.zip`, preliminary Markdown audit, and audit-only deduplicated
+CSV were independently inspected. Source SHA-256 values were recorded before and
+after processing and remained unchanged. A reproducible read-only auditor was added
+at `scripts/ml/audit_colmap_csv_archive.py`; its outputs are under
+`evaluation/ml/colmap_csv_archive_real_audit/` and the findings are documented in
+`docs/real_colmap_csv_dataset_audit.md`.
+
+Verified totals: 675 unique experiment tags, 659 numeric labels, and 49 source-group
+identifiers. All selected rows declare 60 images and their numeric counts, rounded
+ratios, and rounded percentages agree. There are 647 numeric sparse-model rows, 12
+numeric mapper-failure zeros, 5 unlabeled mapper failures, 9 budget pauses, and 2
+matching exceptions. The ZIP's 1,173 label rows include 373 duplicated tags and 498
+extra export rows; semantic normalization found zero contradictory measurements.
+Batch G was not present.
+
+Current compatibility is deliberately 0 accepted, 664 recoverable, and 11 excluded.
+The ZIP has no per-record result JSON or exact input manifest/hash evidence. Numeric
+mapper zeros remain unaccepted until failure stage/command evidence is available.
+Only 15 source identifiers can be crosschecked against source-list assignments; A/B's
+34 identifiers need the referenced candidate manifest. The five held-out category
+names are absent from development rows, but their exact physical source IDs are not
+in the archive.
+
+The importer now supports the real `registration_proxy_60f_v1` schema, exact integer
+counts, declared rounded ratios/percentages, experiment tags, source tags, and label
+versions. Canonical percentages come from integer counts. It refuses generic mapper
+errors without verified mapper-stage evidence, refuses audit-only group maps, and
+does not regenerate transformed variants from base CO3D frames without an implemented
+and evidenced transform contract. A dry run on the actual 52-row Batch C CSV detected
+the correct schema, preserved its hash, accepted 0, and rejected all 52 specifically
+because their per-record reconstruction JSON files were absent.
+
+The generated small-file retrieval manifests request compact result JSON, ordered
+60-frame manifests/hashes, executed transformation configs, and compact mapper-failure
+summaries where relevant. They explicitly exclude COLMAP databases, sparse/dense
+models, point clouds, and complete run folders. Archived historical feature CSVs do
+not match the production eight-feature contract and will not be reused.
+
+Final commands:
+
+```bash
+.venv/bin/python scripts/ml/audit_colmap_csv_archive.py \
+  --archive "/Users/sasanda/Downloads/csv files.zip" \
+  --audit-inventory-csv /Users/sasanda/Downloads/colmap_deduplicated_AUDIT_ONLY.csv \
+  --out-dir evaluation/ml/colmap_csv_archive_real_audit
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+git diff --check
+.venv/bin/python -m pytest -q
+```
+
+The audit command intentionally exited 2 because `training_ready=false`. Compileall
+and diff checks succeeded; the final full test suite reported `70 passed, 3 skipped
+in 18.43s`, and an explicit audit-artifact consistency check passed. The skips remain
+optional sklearn/PyTorch tests. No COLMAP, feature
+extraction, training, or model activation occurred, and heuristic/viewpoint scoring
+was unchanged.
+
+## Experimental final registration-model training workflow — implemented, not run (2026-11-19)
+
+Added the CPU Colab workflow at
+`notebooks/experimental_registration_training_colab.ipynb`, its reproducible builder,
+a non-permissive regeneration-contract template, an executed-code adapter template,
+tests, and `docs/experimental_registration_training.md`.
+
+The notebook starts only from the 647 audited numeric sparse-model records. It
+deduplicates and rechecks 60-frame/count/percentage invariants, requires an exact
+executed sampling/transformation contract, regenerates inputs through a separately
+hashed adapter, validates 60-image manifests, and calls the production
+`registration_features.py` extractor. Unknown or incompletely evidenced variants
+are excluded or marked uncertain; mapper failures and infrastructure/interruption
+records are never converted into training zeros.
+
+The evaluation freezes identical physical-source `GroupKFold` splits for Dummy
+mean, Ridge, Random Forest, and Gradient Boosting; keeps preprocessing inside each
+fold; reports MAE, RMSE, prediction distributions, and degradation-family errors;
+and selects only from grouped CV. Exactly five declared physical source IDs are
+reserved outside development and may be evaluated once only when compatible
+held-out features exist.
+
+Every selected artifact is written as experimental with feature metadata, provenance,
+hash inventory, and saved parity inputs. Production packaging defaults off and is
+allowed only when provenance is complete, all inputs are original-hash verified, the
+selected model is compatible with the existing RF-only loader, the independent
+holdout has been evaluated, and the existing feature-parity gate passes. No model was
+trained or activated locally because the executed labeling code/configuration, CO3D
+tree, and exact five held-out source IDs are not present in this workspace. Therefore
+no accepted/excluded runtime counts or model metrics are claimed yet.
+
+Verification commands:
+
+```bash
+.venv/bin/python scripts/ml/build_experimental_registration_training_notebook.py
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+git diff --check
+.venv/bin/python -m pytest -q
+```
+
+Observed: the builder regenerated a clean CPU notebook whose code cells parse,
+compileall and `git diff --check` exited 0, and the full suite reported
+`73 passed, 3 skipped in 18.53s`. The skips are pre-existing optional scikit-learn
+and PyTorch tests because those dependencies are absent from the local core
+environment; Colab installs the tabular dependencies before training.
+
+## R1 60-frame regeneration pilot — implemented, real Colab run pending (2026-11-19)
+
+Extracted the executed implementation from `co3d_R1_fourhour_colab.ipynb`. The
+executed notebook's full SHA-256 is
+`e6d66c8515b72ce6263fcb6f297427200713530b7e1038aa11c5f08135340717`;
+its executed constants and regeneration cells match the pinned source hashes in
+`r1_regeneration.py`. The implementation preserves the original lexicographic CO3D
+ordering, all 16 window/span camera-path formulas, EXIF transpose, RGB conversion,
+max-edge 800 LANCZOS resize, and Pillow JPEG quality 90 save.
+
+Added the focused CPU notebook `notebooks/r1_regeneration_pilot_colab.ipynb`, the
+R1 adapter, and `scripts/ml/run_r1_feature_pilot.py`. The default pilot selects three
+real numeric sparse-model labels across three physical groups: apple span (60/60),
+backpack window (29/60), and banana span (2/60). It regenerates 60 inputs, writes
+source/output hashes and manifests, invokes the production eight-feature extractor,
+and saves feature, decision, diagnostics, and provenance outputs. Original prepared
+JPEG identity remains honestly `unverified`; labeling-time hashes and the exact
+Pillow/libjpeg runtime were not saved.
+
+An end-to-end local smoke test used synthetic images at the three real CO3D directory
+paths and the real R1 labels. It accepted 3/3 records, produced all eight finite
+features, preserved groups and canonical count-derived targets, and reported
+`colmap_run=false`. These are implementation-test features, not real CO3D feature
+values and were kept only under `/private/tmp`. The real three-row dataset must be
+generated by running the Colab notebook against the official CO3D sequences. After
+that succeeds, the disabled final cell expands the identical path to the 72 numeric
+R1 sparse-model rows across the five R1 source groups.
+
+Final verification commands:
+
+```bash
+.venv/bin/python scripts/ml/build_r1_regeneration_pilot_notebook.py
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+git diff --check
+.venv/bin/python -m pytest -q
+```
+
+Observed: notebook generation, compileall, and diff checks exited 0. The full suite
+reported `79 passed, 3 skipped in 19.93s`; the skips remain optional scikit-learn
+and PyTorch tests unavailable in the local core environment. No production artifact
+manifest was created, no model was trained or activated, and the heuristic and
+viewpoint code paths were unchanged.
+

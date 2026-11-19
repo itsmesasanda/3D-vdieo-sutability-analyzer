@@ -26,14 +26,22 @@ from .registration_training import (
 
 IMPORT_SCHEMA_VERSION = "colab_registration_import/1.0"
 EXPECTED_INPUT_COUNT = 60
-SUCCESS_STATUSES = {"success", "partial", "succeeded", "measured_success"}
-FAILURE_STATUSES = {"failed", "reconstruction_failed"}
+SUCCESS_STATUSES = {
+    "success",
+    "partial",
+    "succeeded",
+    "measured_success",
+    "sparse_model_created",
+}
+FAILURE_STATUSES = {"failed", "reconstruction_failed", "map_failed"}
 UNAVAILABLE_STATUSES = {
     "unavailable",
     "infrastructure_unavailable",
     "pipeline_exception",
     "not_run",
     "missing",
+    "match_exception",
+    "session_budget_pause",
 }
 VERIFIABLE_FAILURE_STAGES = {
     "mapper_sequential",
@@ -88,9 +96,12 @@ def _required(row: Mapping[str, Any], names: Sequence[str], description: str) ->
 
 def _integer(row: Mapping[str, Any], names: Sequence[str], description: str) -> int:
     try:
-        return int(float(_required(row, names, description)))
+        value = float(_required(row, names, description))
     except ValueError as exc:
         raise ColabImportError(f"{description} is not an integer") from exc
+    if not np.isfinite(value) or not value.is_integer():
+        raise ColabImportError(f"{description} is not an integer")
+    return int(value)
 
 
 def _number(row: Mapping[str, Any], names: Sequence[str], description: str) -> float:
@@ -105,6 +116,14 @@ def _number(row: Mapping[str, Any], names: Sequence[str], description: str) -> f
 
 def detect_colab_schema(columns: Sequence[str]) -> str:
     names = set(columns)
+    if {
+        "tag",
+        "source_group",
+        "sampled_images",
+        "registered_ratio",
+        "target_registration_0_100",
+    } <= names:
+        return "registration_proxy_60f_v1"
     if {"category", "sequence_name", "n_sampled_frames", "registration_ratio"} <= names:
         return "legacy_co3d_sequence_labels"
     if {"sequence", "status", "total_input_image_count", "registered_image_ratio"} <= names:
@@ -133,6 +152,11 @@ def _load_group_map(path: Optional[Path]) -> Dict[Tuple[str, str], Dict[str, str
             raise ValueError(f"Group map is missing columns: {sorted(missing)}")
         output: Dict[Tuple[str, str], Dict[str, str]] = {}
         for line_number, row in enumerate(reader, start=2):
+            audit_only = (row.get("audit_only_not_yet_training_approved") or "").strip().lower()
+            if audit_only in {"true", "1", "yes"}:
+                raise ValueError(
+                    f"Group map is explicitly AUDIT_ONLY at line {line_number}; review and approve it first"
+                )
             key = ((row.get("category") or "").strip(), (row.get("sequence_name") or "").strip())
             if not key[1] or key in output:
                 raise ValueError(f"Missing/duplicate group-map identity at line {line_number}")
@@ -187,6 +211,8 @@ def _find_source_result(
     for root in roots:
         for pattern in (
             f"**/{category}__{sequence}.json",
+            f"**/{sequence}/**/result.json",
+            f"**/{sequence}/**/metrics.json",
             f"**/{sequence}/**/reconstruction_result_persistent.json",
             f"**/{sequence}/**/reconstruction_result.json",
         ):
@@ -202,23 +228,49 @@ def _metrics_from_source_result(source: Mapping[str, Any]) -> Dict[str, Any]:
             "failure_stage": source.get("failure_stage"),
             "failure_reason": source.get("failure_reason"),
             "commands": source.get("commands") or [],
-            "total": metrics.get("total_input_image_count", source.get("total_input_image_count")),
-            "registered": metrics.get("registered_image_count"),
-            "ratio": metrics.get("registered_image_ratio"),
-            "points": metrics.get("reconstructed_point_count"),
-            "reprojection": metrics.get("mean_reprojection_error_pixels"),
+            "total": metrics.get(
+                "total_input_image_count",
+                source.get("total_input_image_count", source.get("sampled_images")),
+            ),
+            "registered": metrics.get(
+                "registered_image_count", metrics.get("registered_images")
+            ),
+            "ratio": metrics.get(
+                "registered_image_ratio", metrics.get("registered_ratio")
+            ),
+            "points": metrics.get(
+                "reconstructed_point_count", metrics.get("points3d")
+            ),
+            "reprojection": metrics.get(
+                "mean_reprojection_error_pixels",
+                metrics.get("mean_reprojection_error"),
+            ),
             "track_length": metrics.get("mean_track_length_images"),
         }
     return {
         "status": source.get("reconstruction_status", source.get("status", "")),
         "failure_stage": source.get("failure_stage"),
-        "failure_reason": source.get("error", source.get("failure_reason")),
+        "failure_reason": source.get("failure_reason") or source.get("error"),
         "commands": source.get("commands") or [],
-        "total": source.get("n_sampled_frames", source.get("total_input_image_count")),
-        "registered": source.get("n_registered_cameras", source.get("registered_image_count")),
-        "ratio": source.get("registration_ratio", source.get("registered_image_ratio")),
-        "points": source.get("n_points_3d", source.get("reconstructed_point_count")),
-        "reprojection": source.get("mean_reprojection_error", source.get("mean_reprojection_error_pixels")),
+        "total": source.get(
+            "n_sampled_frames",
+            source.get("total_input_image_count", source.get("sampled_images")),
+        ),
+        "registered": source.get(
+            "n_registered_cameras",
+            source.get("registered_image_count", source.get("registered_images")),
+        ),
+        "ratio": source.get(
+            "registration_ratio",
+            source.get("registered_image_ratio", source.get("registered_ratio")),
+        ),
+        "points": source.get(
+            "n_points_3d", source.get("reconstructed_point_count", source.get("points3d"))
+        ),
+        "reprojection": source.get(
+            "mean_reprojection_error",
+            source.get("mean_reprojection_error_pixels"),
+        ),
         "track_length": source.get("mean_track_length", source.get("mean_track_length_images")),
     }
 
@@ -226,9 +278,21 @@ def _metrics_from_source_result(source: Mapping[str, Any]) -> Dict[str, Any]:
 def _validated_metrics(
     row: Mapping[str, str], source: Mapping[str, Any]
 ) -> Dict[str, Any]:
-    total = _integer(row, ["n_sampled_frames", "total_input_image_count"], "input image count")
-    registered = _integer(row, ["n_registered_cameras", "registered_image_count"], "registered image count")
-    ratio = _number(row, ["registration_ratio", "registered_image_ratio"], "registration ratio")
+    total = _integer(
+        row,
+        ["n_sampled_frames", "total_input_image_count", "sampled_images"],
+        "input image count",
+    )
+    registered = _integer(
+        row,
+        ["n_registered_cameras", "registered_image_count", "registered_images"],
+        "registered image count",
+    )
+    ratio = _number(
+        row,
+        ["registration_ratio", "registered_image_ratio", "registered_ratio"],
+        "registration ratio",
+    )
     status = _required(row, ["reconstruction_status", "status"], "reconstruction status").lower()
     if total != EXPECTED_INPUT_COUNT:
         raise ColabImportError(
@@ -236,8 +300,22 @@ def _validated_metrics(
         )
     if not 0 <= registered <= total or not 0 <= ratio <= 1:
         raise ColabImportError("registration count/ratio is outside valid bounds")
-    if not np.isclose(ratio, registered / total, atol=1e-9, rtol=1e-9):
+    if not np.isclose(ratio, registered / total, atol=5.0001e-6, rtol=0.0):
         raise ColabImportError("registration ratio is inconsistent with counts")
+    declared_target = _first(
+        row, ["target_registration_0_100", "registration_percentage"]
+    )
+    if declared_target:
+        try:
+            target = float(declared_target)
+        except ValueError as exc:
+            raise ColabImportError("registration target percentage is not numeric") from exc
+        if not np.isfinite(target) or not np.isclose(
+            target, 100.0 * registered / total, atol=0.005001, rtol=0.0
+        ):
+            raise ColabImportError(
+                "registration target percentage is inconsistent with counts"
+            )
     source_metrics = _metrics_from_source_result(source)
     for name, expected, actual in (
         ("input image count", total, source_metrics["total"]),
@@ -246,7 +324,8 @@ def _validated_metrics(
     ):
         if actual is None:
             raise ColabImportError(f"source reconstruction artifact has no {name}")
-        if not np.isclose(float(expected), float(actual), atol=1e-9, rtol=1e-9):
+        tolerance = 5.0001e-6 if name == "registration ratio" else 1e-9
+        if not np.isclose(float(expected), float(actual), atol=tolerance, rtol=0.0):
             raise ColabImportError(f"CSV {name} differs from source reconstruction artifact")
     source_status = str(source_metrics["status"] or "").lower()
     if status in SUCCESS_STATUSES:
@@ -283,7 +362,8 @@ def _validated_metrics(
         "failure_verified": failure_verified,
         "total": total,
         "registered": registered,
-        "ratio": ratio,
+        "ratio": registered / total,
+        "declared_ratio": ratio,
         "points": source_metrics["points"],
         "reprojection": source_metrics["reprojection"],
         "track_length": source_metrics["track_length"],
@@ -322,16 +402,14 @@ def _input_integrity_hashes(path: Path) -> Optional[Dict[str, str]]:
     return {str(name): str(value).lower() for name, value in hashes.items()}
 
 
-def _find_exact_input_directory(
+def _find_exact_input_files(
     row: Mapping[str, str], roots: Sequence[Path], category: str, sequence: str
-) -> Optional[Path]:
+) -> Optional[List[Path]]:
     parsed_paths = _parse_path_list(_first(row, ["sampled_frame_paths"]))
-    if parsed_paths:
-        parents = {str(Path(value).parent) for value in parsed_paths}
-        for parent in parents:
-            candidate = Path(parent)
-            if candidate.is_dir():
-                return candidate.resolve()
+    if len(parsed_paths) == EXPECTED_INPUT_COUNT:
+        resolved_paths = [Path(value).expanduser().resolve() for value in parsed_paths]
+        if all(path.is_file() for path in resolved_paths):
+            return resolved_paths
     candidates: List[Path] = []
     for root in roots:
         candidates.extend(
@@ -348,7 +426,7 @@ def _find_exact_input_directory(
     for candidate in candidates:
         images = sorted(path for path in candidate.glob("*") if path.is_file())
         if len(images) == EXPECTED_INPUT_COUNT:
-            return candidate.resolve()
+            return [path.resolve() for path in images]
     return None
 
 
@@ -392,10 +470,15 @@ def _write_collected_input(
                 "sequence_number": position,
                 "filename": filename,
                 "requested_source_frame_index": (
-                    source_indices[position] if source_indices is not None else position
+                    source_indices[position] if source_indices is not None else ""
                 ),
                 "actual_source_frame_index": (
-                    source_indices[position] if source_indices is not None else position
+                    source_indices[position] if source_indices is not None else ""
+                ),
+                "source_frame_index_status": (
+                    "verified_co3d_sequence_position"
+                    if source_indices is not None
+                    else "unavailable_preserved_colmap_input_order"
                 ),
                 "timestamp_seconds": (
                     timestamps[position]
@@ -459,16 +542,36 @@ def _write_collected_input(
 
 
 def _collect_exact_input(
-    source_dir: Path, destination: Path, category: str, sequence: str
+    source_images: Sequence[Path],
+    destination: Path,
+    category: str,
+    sequence: str,
+    roots: Sequence[Path],
 ) -> Dict[str, Any]:
-    images = sorted(path for path in source_dir.iterdir() if path.is_file())
+    images = list(source_images)
     if len(images) != EXPECTED_INPUT_COUNT:
-        raise ColabImportError("saved COLMAP input directory does not contain exactly 60 files")
+        raise ColabImportError("saved COLMAP input collection does not contain exactly 60 files")
     actual_hashes = {path.name: sha256_file(path) for path in images}
-    parent = source_dir.parent
-    manifest_hashes = _manifest_hashes(parent / "frames_manifest.csv")
-    integrity_hashes = _input_integrity_hashes(parent / "input_integrity.json")
-    original_verified = actual_hashes in (manifest_hashes, integrity_hashes)
+    evidence_candidates: List[Optional[Dict[str, str]]] = []
+    for parent in {path.parent for path in images}:
+        evidence_candidates.extend(
+            [
+                _manifest_hashes(parent.parent / "frames_manifest.csv"),
+                _input_integrity_hashes(parent.parent / "input_integrity.json"),
+            ]
+        )
+    for root in roots:
+        evidence_candidates.extend(
+            _manifest_hashes(path)
+            for path in root.glob(f"**/{sequence}/frames_manifest.csv")
+        )
+        evidence_candidates.extend(
+            _input_integrity_hashes(path)
+            for path in root.glob(f"**/{sequence}/input_integrity.json")
+        )
+    original_verified = any(
+        hashes == actual_hashes for hashes in evidence_candidates if hashes is not None
+    )
     provenance = (
         "original_notebook_verified"
         if original_verified
@@ -611,7 +714,11 @@ def import_colab_registration_labels(
         csv_roots = [csv_path.parent, *roots]
         for line_number, row in enumerate(rows, start=2):
             category = _first(row, ["category"])
-            sequence = _first(row, ["sequence_name", "sequence", "sequence_id"])
+            source_sequence = _first(
+                row,
+                ["source_tag", "sequence_name", "sequence", "sequence_id"],
+            )
+            experiment = _first(row, ["tag", "record_id"]) or source_sequence
             attempt = _first(row, ["attempt"])
             batch_id = _first(row, ["batch_id"]) or f"{batch_id_prefix}:{csv_path.stem}"
             identity = {
@@ -620,22 +727,35 @@ def import_colab_registration_labels(
                 "line_number": line_number,
                 "schema": schema,
                 "category": category,
-                "sequence_name": sequence,
+                "sequence_name": source_sequence,
+                "experiment_tag": experiment,
                 "attempt": attempt,
                 "batch_id": batch_id,
             }
             try:
                 if schema == "unknown":
                     raise ColabImportError("unrecognized Colab CSV schema")
-                if not sequence:
+                if not source_sequence or not experiment:
                     raise ColabImportError("sequence identity is missing")
-                record_id = _first(row, ["record_id"]) or ":".join(
-                    part for part in (batch_id, category, sequence, attempt) if part
+                record_id = (
+                    experiment
+                    if schema == "registration_proxy_60f_v1"
+                    else _first(row, ["record_id"])
+                    or ":".join(
+                        part
+                        for part in (batch_id, category, experiment, attempt)
+                        if part
+                    )
                 )
                 if record_id in seen_records:
                     raise ColabImportError("duplicate record identity across imported batches")
                 seen_records.add(record_id)
-                mapping = group_map.get((category, sequence)) or group_map.get(("", sequence))
+                mapping = (
+                    group_map.get((category, experiment))
+                    or group_map.get(("", experiment))
+                    or group_map.get((category, source_sequence))
+                    or group_map.get(("", source_sequence))
+                )
                 if mapping is None:
                     inline = {
                         "source_group": _first(row, ["source_group", "split_group_id"]),
@@ -646,7 +766,7 @@ def import_colab_registration_labels(
                     if all(inline.values()):
                         mapping = inline
                 source_result_path = _find_source_result(
-                    row, csv_path, csv_roots, category, sequence
+                    row, csv_path, csv_roots, category, experiment
                 )
                 if source_result_path is None:
                     raise ColabImportError(
@@ -659,13 +779,17 @@ def import_colab_registration_labels(
                         "source_group/variant/evaluation_role provenance is missing"
                     )
                 collected_root = destination / "collected_inputs" / _safe_name(record_id)
-                original_dir = _find_exact_input_directory(
-                    row, csv_roots, category, sequence
+                original_files = _find_exact_input_files(
+                    row, csv_roots, category, experiment
                 )
                 co3d_sequence = None
-                if original_dir is not None:
+                if original_files is not None:
                     collected = _collect_exact_input(
-                        original_dir, collected_root, category, sequence
+                        original_files,
+                        collected_root,
+                        category,
+                        experiment,
+                        csv_roots,
                     )
                 else:
                     if loader is None:
@@ -680,10 +804,16 @@ def import_colab_registration_labels(
                         raise ColabImportError(
                             "regeneration requires a notebook/config file proving the declared sampling strategy"
                         )
+                    variant = mapping["variant"].strip().lower()
+                    if schema == "registration_proxy_60f_v1" and variant != "original":
+                        raise ColabImportError(
+                            "transformed variant cannot be regenerated from base CO3D frames "
+                            "without an implemented and evidenced transformation contract"
+                        )
                     collected, co3d_sequence = _regenerate_co3d_input(
                         loader,
                         category,
-                        sequence,
+                        source_sequence,
                         collected_root,
                         regeneration_sampling_strategy,
                         evidence_path,
@@ -744,7 +874,7 @@ def import_colab_registration_labels(
                         "label_schema_version": LABEL_SCHEMA_VERSION,
                         "batch_id": batch_id,
                         "record_id": record_id,
-                        "sequence_id": sequence,
+                        "sequence_id": source_sequence,
                         "source_group": source_group,
                         "source_group_provenance": source_group_provenance,
                         "variant": mapping["variant"],
@@ -756,7 +886,8 @@ def import_colab_registration_labels(
                         "total_input_image_count": str(metrics["total"]),
                         "registration_percentage": str(metrics["ratio"] * 100.0),
                         "label_provenance_kind": "colmap_sparse_reconstruction",
-                        "label_protocol_version": f"imported-{schema}/1.0",
+                        "label_protocol_version": _first(row, ["label_version"])
+                        or f"imported-{schema}/1.0",
                         "label_artifact": str(normalized_path),
                         "label_artifact_sha256": sha256_file(normalized_path),
                         "label_generated_at_utc": _first(
@@ -769,7 +900,8 @@ def import_colab_registration_labels(
                         "images_directory": str(collected["images_dir"]),
                         "extraction_metadata": str(collected["metadata"]),
                         "extraction_metadata_sha256": sha256_file(collected["metadata"]),
-                        "sampling_protocol_id": f"imported-{schema}/1.0",
+                        "sampling_protocol_id": _first(row, ["label_version"])
+                        or f"imported-{schema}/1.0",
                         "sampling_configuration_sha256": collected[
                             "sampling_configuration_sha256"
                         ],

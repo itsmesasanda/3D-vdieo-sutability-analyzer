@@ -34,6 +34,7 @@ Identity and split fields:
 - `record_id`: unique capture/variant record across all batches;
 - `sequence_id`: capture sequence identifier;
 - `source_group`: physical source sequence/object identity used for leakage control;
+- `source_group_provenance`: how that physical identity was verified or mapped;
 - `variant`: front-only, quarter-orbit, full-orbit, rotation-only, blurred, or the
   batch's declared variant;
 - `evaluation_role`: either `development` or `independent_holdout`. This assignment
@@ -58,6 +59,13 @@ Input evidence fields:
 - `sampling_protocol_id` and `sampling_configuration_sha256`;
 - `input_fidelity=exact_labeled_frames`, or `faithfully_regenerated` with a nonblank
   `regeneration_provenance` explaining how hashes/configuration were reproduced.
+- `input_hash_provenance`: distinguishes hashes recorded during labeling,
+  import-time hashes of preserved files, and deterministic CO3D regeneration.
+
+Historical Colab CSVs do not directly satisfy this contract. Normalize them first
+with `scripts/ml/import_colab_registration_labels.py`; its schema audit, regeneration
+limits, and Drive collection commands are documented in
+[`colab_label_compatibility_audit.md`](colab_label_compatibility_audit.md).
 
 The sampling-configuration hash is SHA-256 over compact, key-sorted JSON returned by
 `registration_sampling_configuration(metadata)`. It covers source cadence/count,

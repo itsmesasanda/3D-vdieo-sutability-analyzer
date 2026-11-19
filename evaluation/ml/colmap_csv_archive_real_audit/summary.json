@@ -1,0 +1,303 @@
+{
+  "accepted_record_count": 0,
+  "all_selected_rows_declare_60_inputs": true,
+  "archive": "/Users/sasanda/Downloads/csv files.zip",
+  "archive_sha256": "f746dcc016527c44857f59ce3f9dd8d151c49de5ca2fcd894058d8d4e2b088fb",
+  "archived_feature_contract_matches_production": false,
+  "archived_feature_names": [
+    "brightness_mean",
+    "brightness_variation",
+    "contrast_mean",
+    "dark_fraction",
+    "orb_features_mean",
+    "orb_matches_mean",
+    "sharpness_mean",
+    "sharpness_variation"
+  ],
+  "arithmetic_issue_count": 0,
+  "assignment_validation": [
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (1).json",
+      "batch_id": "A",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": false
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (3).json",
+      "batch_id": "B",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": false
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment-2.json",
+      "batch_id": "C",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (9).json",
+      "batch_id": "D",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (8).json",
+      "batch_id": "E",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (7).json",
+      "batch_id": "F",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment (5).json",
+      "batch_id": "R1",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment.json",
+      "batch_id": "R2",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    },
+    {
+      "assignment_batch_matches": true,
+      "assignment_file": "batch_assignment-4.json",
+      "batch_id": "R3",
+      "observed_categories_are_declared": true,
+      "observed_source_groups_are_declared": true
+    }
+  ],
+  "batch_summary": [
+    {
+      "batch_id": "Original",
+      "experiment_count": 45,
+      "numeric_label_count": 45,
+      "selected_export": "labels_45_plus_batches_A_B.csv",
+      "source_group_count": 15,
+      "variants": [
+        "gaussian_blur_r4",
+        "low_exposure_x025",
+        "original"
+      ]
+    },
+    {
+      "batch_id": "A",
+      "experiment_count": 51,
+      "numeric_label_count": 51,
+      "selected_export": "new_labels_50 (1).csv",
+      "source_group_count": 17,
+      "variants": [
+        "gaussian_blur_r4",
+        "low_exposure_x025",
+        "original"
+      ]
+    },
+    {
+      "batch_id": "B",
+      "experiment_count": 51,
+      "numeric_label_count": 51,
+      "selected_export": "new_labels_50 (2).csv",
+      "source_group_count": 17,
+      "variants": [
+        "gaussian_blur_r4",
+        "low_exposure_x025",
+        "original"
+      ]
+    },
+    {
+      "batch_id": "C",
+      "experiment_count": 52,
+      "numeric_label_count": 50,
+      "selected_export": "new_labels_50-2.csv",
+      "source_group_count": 13,
+      "variants": [
+        "gaussian_blur_r2",
+        "gaussian_blur_r7",
+        "high_exposure_x175",
+        "low_exposure_x050"
+      ]
+    },
+    {
+      "batch_id": "D",
+      "experiment_count": 52,
+      "numeric_label_count": 52,
+      "selected_export": "new_labels_50 (8).csv",
+      "source_group_count": 13,
+      "variants": [
+        "window_early_60",
+        "window_earlymid_60",
+        "window_late_60",
+        "window_latemid_60"
+      ]
+    },
+    {
+      "batch_id": "E",
+      "experiment_count": 52,
+      "numeric_label_count": 52,
+      "selected_export": "new_labels_50 (7).csv",
+      "source_group_count": 13,
+      "variants": [
+        "viewspan_early_60pct",
+        "viewspan_late_60pct",
+        "viewspan_middle_60pct",
+        "viewspan_middle_80pct"
+      ]
+    },
+    {
+      "batch_id": "F",
+      "experiment_count": 52,
+      "numeric_label_count": 52,
+      "selected_export": "new_labels_50 (6).csv",
+      "source_group_count": 13,
+      "variants": [
+        "contrast_x050",
+        "contrast_x150",
+        "gaussian_noise_sigma18",
+        "jpeg_quality_35"
+      ]
+    },
+    {
+      "batch_id": "R1",
+      "experiment_count": 80,
+      "numeric_label_count": 72,
+      "selected_export": "new_labels_50 (5).csv",
+      "source_group_count": 5,
+      "variants": [
+        "span_p00_p68",
+        "span_p03_p84",
+        "span_p08_p77",
+        "span_p15_p95",
+        "span_p22_p82",
+        "span_p25_p94",
+        "span_p32_p100",
+        "span_p40_p98",
+        "window_offset_p10_60",
+        "window_offset_p18_60",
+        "window_offset_p24_60",
+        "window_offset_p40_60",
+        "window_offset_p55_60",
+        "window_offset_p62_60",
+        "window_offset_p80_60",
+        "window_offset_p90_60"
+      ]
+    },
+    {
+      "batch_id": "R2",
+      "experiment_count": 144,
+      "numeric_label_count": 138,
+      "selected_export": "new_labels_50.csv",
+      "source_group_count": 12,
+      "variants": [
+        "contrast_x070",
+        "contrast_x085",
+        "contrast_x125",
+        "contrast_x175",
+        "exposure_x040",
+        "exposure_x070",
+        "exposure_x130",
+        "exposure_x200",
+        "gaussian_blur_r1",
+        "gaussian_blur_r3",
+        "gaussian_blur_r5",
+        "gaussian_blur_r9"
+      ]
+    },
+    {
+      "batch_id": "R3",
+      "experiment_count": 96,
+      "numeric_label_count": 96,
+      "selected_export": "new_labels_50-4.csv",
+      "source_group_count": 8,
+      "variants": [
+        "gamma_055",
+        "gamma_075",
+        "gamma_130",
+        "gamma_170",
+        "gaussian_noise_sigma08",
+        "gaussian_noise_sigma32",
+        "jpeg_quality_55",
+        "jpeg_quality_75",
+        "low_resolution_360",
+        "low_resolution_480",
+        "motion_blur_h5",
+        "motion_blur_v5"
+      ]
+    }
+  ],
+  "classification_counts": {
+    "excluded_infrastructure_no_target": 11,
+    "recoverable_success_missing_evidence": 647,
+    "recoverable_unlabeled_mapper_failure": 5,
+    "recoverable_zero_requires_failure_evidence": 12
+  },
+  "colmap_run": false,
+  "duplicate_extra_row_count": 498,
+  "duplicated_tag_count": 373,
+  "excluded_record_count": 11,
+  "feature_export_count": 15,
+  "holdout": {
+    "exact_physical_source_ids_available": false,
+    "identifier_kind": "category_names_only",
+    "present_in_selected_training_rows": [],
+    "reserved_identifiers_from_assignment": [
+      "bicycle",
+      "bowl",
+      "cake",
+      "plant",
+      "toyplane"
+    ]
+  },
+  "inventory_comparison": {
+    "extra_in_inventory": [],
+    "field_mismatch_count": 0,
+    "field_mismatches": [],
+    "missing_from_inventory": [],
+    "path": "/Users/sasanda/Downloads/colmap_deduplicated_AUDIT_ONLY.csv",
+    "provided": true,
+    "row_count": 675,
+    "sha256": "bb81ab90b22d2366aa60fc8d7f46f021e0e7ffb079921ea718472043284bbc7a"
+  },
+  "model_trained": false,
+  "numeric_label_count": 659,
+  "original_archive_modified": false,
+  "production_compatible_feature_extraction_can_begin": false,
+  "production_feature_names": [
+    "mean_brightness",
+    "mean_contrast",
+    "mean_frame_difference",
+    "mean_orb_good_matches",
+    "mean_orb_keypoints",
+    "mean_orb_match_ratio",
+    "mean_orb_ransac_inlier_ratio",
+    "mean_sharpness"
+  ],
+  "raw_label_export_count": 15,
+  "raw_label_row_count": 1173,
+  "raw_unique_tag_count": 675,
+  "recoverable_record_count": 664,
+  "schema_version": "registration_proxy_archive_audit/1.0",
+  "semantic_conflict_count": 0,
+  "source_identifier_count": 49,
+  "status_target_counts": {
+    "map_failed:blank": 5,
+    "map_failed:numeric": 12,
+    "match_exception:blank": 2,
+    "session_budget_pause:blank": 9,
+    "sparse_model_created:numeric": 647
+  },
+  "training_ready": false,
+  "unique_experiment_count": 675
+}

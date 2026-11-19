@@ -1,0 +1,38 @@
+{
+  "schema_version": "registration_regeneration_contract/1.0",
+  "adapter_sha256": "REPLACE_WITH_SHA256_OF_EXECUTED_REGENERATION_ADAPTER",
+  "required_runtime_versions": {
+    "opencv": "REPLACE_WITH_EXECUTED_OPENCV_VERSION",
+    "numpy": "REPLACE_WITH_EXECUTED_NUMPY_VERSION"
+  },
+  "executed_code_evidence": [
+    {
+      "path": "/content/drive/MyDrive/path/to/actually_executed_labeling_notebook.ipynb",
+      "sha256": "REPLACE_WITH_EXECUTED_NOTEBOOK_SHA256"
+    },
+    {
+      "path": "/content/drive/MyDrive/path/to/actual_batch_configuration.json",
+      "sha256": "REPLACE_WITH_BATCH_CONFIG_SHA256"
+    }
+  ],
+  "variants": {
+    "original": {
+      "sampling_fully_specified": false,
+      "transformation_fully_specified": false,
+      "deterministic": false,
+      "fidelity_tier": "insufficient_evidence",
+      "sampling": {},
+      "transformation": {},
+      "notes": "Replace only from executed code/config evidence. Do not infer defaults."
+    },
+    "gaussian_blur_r4": {
+      "sampling_fully_specified": false,
+      "transformation_fully_specified": false,
+      "deterministic": false,
+      "fidelity_tier": "insufficient_evidence",
+      "sampling": {},
+      "transformation": {},
+      "notes": "Kernel, border behavior, ordering, encoding and runtime must come from executed evidence."
+    }
+  }
+}

@@ -222,17 +222,29 @@ def verify_registration_frame_manifest(
         raise VideoValidationError(
             "Frame manifest sequence_number values must be ordered and contiguous"
         )
-    try:
-        actual_source_indices = [
-            int(row["actual_source_frame_index"]) for row in rows
-        ]
-    except (TypeError, ValueError) as exc:
+    raw_source_indices = [row["actual_source_frame_index"].strip() for row in rows]
+    if all(raw_source_indices):
+        try:
+            actual_source_indices = [int(value) for value in raw_source_indices]
+        except ValueError as exc:
+            raise VideoValidationError(
+                "Frame manifest actual_source_frame_index values must be integers"
+            ) from exc
+        if actual_source_indices != sorted(set(actual_source_indices)):
+            raise VideoValidationError(
+                "Frame manifest source-frame indices must be unique and chronological"
+            )
+    elif not any(raw_source_indices):
+        statuses = {
+            (row.get("source_frame_index_status") or "").strip() for row in rows
+        }
+        if statuses != {"unavailable_preserved_colmap_input_order"}:
+            raise VideoValidationError(
+                "Blank source-frame indices require explicit preserved-COLMAP-order provenance"
+            )
+    else:
         raise VideoValidationError(
-            "Frame manifest actual_source_frame_index values must be integers"
-        ) from exc
-    if actual_source_indices != sorted(set(actual_source_indices)):
-        raise VideoValidationError(
-            "Frame manifest source-frame indices must be unique and chronological"
+            "Frame manifest cannot mix known and unknown source-frame indices"
         )
     filenames = [row["filename"].strip() for row in rows]
     if any(not value for value in filenames) or len(set(filenames)) != len(filenames):
