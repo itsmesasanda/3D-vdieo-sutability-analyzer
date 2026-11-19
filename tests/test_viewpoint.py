@@ -11,6 +11,7 @@ def test_video_scenarios_match_expected_viewpoint_bands(analysis_reports):
         "quarter_orbit": "Moderate",
         "full_orbit": "High",
         "pure_rotation": "Unknown",
+        "animated_object": "Unknown",
         "blurry": "Unknown",
     }
     observed = {
@@ -24,6 +25,20 @@ def test_video_scenarios_match_expected_viewpoint_bands(analysis_reports):
     assert "blurry" in " ".join(
         analysis_reports["blurry"]["viewpoint_diversity"]["warnings"]
     )
+    animated = analysis_reports["animated_object"]["viewpoint_diversity"]
+    assert animated["indicators"]["mixed_static_dynamic_pair_fraction"] >= 0.30
+    # Without the animation rejection gate, these overlap/motion values satisfy the
+    # broad-change High rule. They are deliberately not treated as orbit evidence.
+    assert animated["indicators"][
+        "temporally_separated_substantial_change_fraction"
+    ] >= 0.65
+    assert animated["indicators"][
+        "temporally_separated_parallax_proxy_pair_fraction"
+    ] >= 0.45
+    assert animated["indicators"][
+        "cumulative_adjacent_displacement_normalized"
+    ] >= 0.22
+    assert "object animation" in animated["decision_explanation"]["primary_reason"]
 
 
 def test_multigap_evidence_detects_repeated_views_without_claiming_coverage(

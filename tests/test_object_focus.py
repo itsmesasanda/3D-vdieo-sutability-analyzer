@@ -23,6 +23,7 @@ def object_focused_reports(synthetic_videos):
             "quarter_orbit",
             "full_orbit",
             "pure_rotation",
+            "animated_object",
             "blurry",
         )
     }
@@ -54,6 +55,7 @@ def test_object_focused_scenarios_are_conservative(object_focused_reports):
         # The object-only fixture does not meet the broader whole-frame High rule.
         "full_orbit": "Moderate",
         "pure_rotation": "Unknown",
+        "animated_object": "Unknown",
         "blurry": "Unknown",
     }
     full = object_focused_reports["full_orbit"]["viewpoint_diversity"]
@@ -84,6 +86,7 @@ def test_object_and_background_evidence_are_reported_separately(
         "object_verified_matches" in pair
         and "background_verified_matches" in pair
         and "background_dominated" in pair
+        and "moving_object_with_static_background" in pair
         and "evaluated" in pair
         for pair in background["pairs"]
     )
@@ -107,6 +110,7 @@ def test_decision_explanations_separate_failure_modes(object_focused_reports):
     front = object_focused_reports["front_only"]["viewpoint_diversity"]
     rotation = object_focused_reports["pure_rotation"]["viewpoint_diversity"]
     blurry = object_focused_reports["blurry"]["viewpoint_diversity"]
+    animated = object_focused_reports["animated_object"]["viewpoint_diversity"]
 
     assert front["decision_explanation"]["classification_rule"] == (
         "stationary_or_repeated_views"
@@ -118,6 +122,12 @@ def test_decision_explanations_separate_failure_modes(object_focused_reports):
         "primary_reason"
     ]
     assert "blurry" in blurry["decision_explanation"]["primary_reason"]
+    assert any(
+        "could not be tracked reliably" in reason or "object animation" in reason
+        for reason in animated["decision_explanation"][
+            "insufficient_evidence_reasons"
+        ]
+    )
 
 
 def test_background_dominance_forces_unknown(

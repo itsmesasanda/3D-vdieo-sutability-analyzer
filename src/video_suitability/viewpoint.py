@@ -177,9 +177,11 @@ def _has_parallax_proxy(pair: Mapping[str, Any]) -> bool:
     return bool(
         pair.get("verification_model") == "fundamental_matrix_ransac"
         and int(pair.get("verified_matches") or 0) >= 12
-        and float(pair.get("spatial_coverage") or 0.0) >= 0.10
+        and float(pair.get("inlier_ratio") or 0.0) >= 0.55
+        and float(pair.get("spatial_coverage") or 0.0) >= 0.15
         and motion is not None
         and float(motion) >= 0.004
+        and not bool(pair.get("mixed_static_dynamic_evidence", False))
         and not _is_strong_planar_or_rotation(pair)
         and (
             residual is None
@@ -187,6 +189,84 @@ def _has_parallax_proxy(pair: Mapping[str, Any]) -> bool:
             or float(pair.get("homography_inlier_ratio") or 0.0) < 0.85
         )
     )
+
+
+def _point_coverage(points: np.ndarray, width: int, height: int) -> float:
+    """Return coarse spatial support for a selected motion population."""
+
+    if points.size == 0 or width <= 0 or height <= 0:
+        return 0.0
+    grid_size = 4
+    x = np.clip((points[:, 0] / width * grid_size).astype(int), 0, grid_size - 1)
+    y = np.clip((points[:, 1] / height * grid_size).astype(int), 0, grid_size - 1)
+    return len(set(zip(x.tolist(), y.tolist()))) / float(grid_size * grid_size)
+
+
+def _motion_field_consistency(
+    keypoints_a: Sequence[Any],
+    keypoints_b: Sequence[Any],
+    descriptors_a: Optional[np.ndarray],
+    descriptors_b: Optional[np.ndarray],
+    frame_shape: Sequence[int],
+    config: AnalysisConfig,
+) -> Dict[str, Any]:
+    """Diagnose static-background plus moving-region mixtures.
+
+    This is a rejection signal, not a camera-pose estimate. A large population of
+    near-static matches coexisting with a spatially supported population of strongly
+    moving matches is consistent with object animation in front of a fixed camera.
+    It must not be promoted to camera-translation evidence.
+    """
+
+    height, width = int(frame_shape[0]), int(frame_shape[1])
+    diagonal = max(1.0, float(np.hypot(width, height)))
+    points_a, points_b = _ratio_test_points(
+        keypoints_a,
+        keypoints_b,
+        descriptors_a,
+        descriptors_b,
+        config.ratio_test,
+    )
+    result: Dict[str, Any] = {
+        "evaluable": False,
+        "ratio_test_match_count": int(len(points_a)),
+        "near_static_match_fraction": None,
+        "strong_motion_match_fraction": None,
+        "near_static_spatial_coverage": None,
+        "strong_motion_spatial_coverage": None,
+        "mixed_static_dynamic_evidence": False,
+    }
+    if len(points_a) < 16:
+        return result
+    magnitudes = np.linalg.norm(points_b - points_a, axis=1) / diagonal
+    # Pixel-aware floors keep the interpretation stable across analysis sizes.
+    static_threshold = max(0.0025, 1.5 / diagonal)
+    moving_threshold = max(0.012, 6.0 / diagonal)
+    near_static = magnitudes <= static_threshold
+    strong_motion = magnitudes >= moving_threshold
+    static_fraction = float(np.mean(near_static))
+    motion_fraction = float(np.mean(strong_motion))
+    static_coverage = _point_coverage(points_a[near_static], width, height)
+    motion_coverage = _point_coverage(points_a[strong_motion], width, height)
+    mixed = bool(
+        int(near_static.sum()) >= 8
+        and int(strong_motion.sum()) >= 8
+        and static_fraction >= 0.30
+        and motion_fraction >= 0.12
+        and static_coverage >= 0.20
+        and motion_coverage >= 0.0625
+    )
+    result.update(
+        {
+            "evaluable": True,
+            "near_static_match_fraction": _rounded(static_fraction),
+            "strong_motion_match_fraction": _rounded(motion_fraction),
+            "near_static_spatial_coverage": _rounded(static_coverage),
+            "strong_motion_spatial_coverage": _rounded(motion_coverage),
+            "mixed_static_dynamic_evidence": mixed,
+        }
+    )
+    return result
 
 
 def _is_repeated_view(pair: Mapping[str, Any]) -> bool:
@@ -428,6 +508,18 @@ def analyze_viewpoint_diversity(
             if (start, end) == (0, len(frames) - 1)
             else "temporally_separated"
         )
+        motion_consistency = _motion_field_consistency(
+            keypoints[start],
+            keypoints[end],
+            descriptors[start],
+            descriptors[end],
+            frames[start].shape,
+            config,
+        )
+        pair["motion_field_consistency"] = motion_consistency
+        pair["mixed_static_dynamic_evidence"] = bool(
+            motion_consistency["mixed_static_dynamic_evidence"]
+        )
         pair["parallax_proxy_detected"] = _has_parallax_proxy(pair)
         pair["strong_planar_or_rotation_evidence"] = _is_strong_planar_or_rotation(
             pair
@@ -473,6 +565,16 @@ def analyze_viewpoint_diversity(
         for pair in separated_pairs
         if pair.get("viewpoint_descriptor_ambiguity_fraction") is not None
         and float(pair["viewpoint_descriptor_ambiguity_fraction"]) >= 0.40
+    ]
+    mixed_motion_pairs = [
+        pair
+        for pair in separated_pairs
+        if pair.get("mixed_static_dynamic_evidence", False)
+    ]
+    evaluable_motion_field_pairs = [
+        pair
+        for pair in separated_pairs
+        if pair.get("motion_field_consistency", {}).get("evaluable", False)
     ]
     endpoint_pair = next(
         (pair for pair in separated_pairs if pair["pair_kind"] == "endpoint"), None
@@ -566,6 +668,14 @@ def analyze_viewpoint_diversity(
         "high_descriptor_ambiguity_pair_fraction": round(
             len(ambiguous_pairs) / separated_denominator, 6
         ),
+        "mixed_static_dynamic_pair_fraction": round(
+            len(mixed_motion_pairs)
+            / max(1, len(evaluable_motion_field_pairs)),
+            6,
+        ),
+        "motion_field_evaluable_pair_fraction": round(
+            len(evaluable_motion_field_pairs) / separated_denominator, 6
+        ),
         "median_within_frame_duplicate_descriptor_fraction": _rounded(
             float(np.median(self_descriptor_ambiguity))
             if self_descriptor_ambiguity
@@ -641,6 +751,13 @@ def analyze_viewpoint_diversity(
     if within_frame_ambiguity >= 0.10 or cross_view_ambiguity >= 0.65:
         insufficient_reasons.append(
             "Descriptors are frequently ambiguous within or across views, consistent with repetitive or symmetric appearance."
+        )
+    if (
+        len(evaluable_motion_field_pairs) >= 3
+        and float(indicators["mixed_static_dynamic_pair_fraction"]) >= 0.30
+    ):
+        insufficient_reasons.append(
+            "Long-gap matches repeatedly split into a broad near-static region and a strongly moving region; object animation or another non-rigid scene change cannot be separated from camera motion."
         )
 
     motion_present = cumulative_adjacent_motion >= 0.035
@@ -759,7 +876,7 @@ def analyze_viewpoint_diversity(
         "summary": summary,
         "method": {
             "name": "orb_ransac_multigap_viewpoint_heuristic",
-            "version": "1.0",
+            "version": "1.1",
             "trained_model_used": False,
             "colmap_run": False,
             "affects_overall_score": False,

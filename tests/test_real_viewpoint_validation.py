@@ -85,3 +85,8 @@ def test_misleading_risks_cover_rotation_background_and_intrinsics(analysis_repo
     assert "intrinsics_accuracy_unverified" in calibrated_risks
     assert "intrinsics_unavailable_for_pose_disambiguation" not in calibrated_risks
 
+    animated = misleading_risk_flags(
+        analysis_reports["animated_object"]["viewpoint_diversity"]
+    )
+    assert "object_animation_evidence" in animated
+

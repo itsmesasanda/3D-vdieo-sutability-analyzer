@@ -1627,3 +1627,95 @@ One preliminary focused pytest command referenced an outdated/nonexistent viewpo
 test node and therefore collected no tests. It was corrected to the actual node;
 the focused deployment selection then reported `6 passed in 3.42s`.
 
+## Viewpoint animation rejection and rigid-consensus revision — complete (2026-11-19)
+
+Updated only the isolated experimental viewpoint path; the deployed heuristic
+scoring formula, weights, caps, Random Forest/Ridge policies, and default opt-in UI
+behavior are unchanged. No COLMAP or ML work ran.
+
+`viewpoint.py` version 1.1 now requires stronger, spatially distributed fundamental-
+matrix consensus before an uncalibrated pair can count as parallax-like support. It
+also diagnoses long-gap motion populations directly from the shared ORB descriptors.
+When multiple evaluable pairs contain both a broad near-static match population and
+a spatially supported strongly moving population, the result is `Unknown` with an
+explicit object-animation/non-rigid-scene reason. High overlap and optical flow do
+not contribute to the viewpoint category by themselves.
+
+Object-focused tracking now records forward/backward box-cycle checks. A successful
+reverse track must overlap the source box; a reverse failure rejects weak forward
+tracks but retains a forward track with at least 0.65 RANSAC inlier ratio because
+image-boundary clipping can make reverse box validation impossible. Object and
+background long-gap geometry now records normalized motion separately. Repeated
+object motion of at least 0.012 image diagonal against a verified background motion
+of at most 0.004 is treated as animation evidence, never camera-orbit evidence.
+Tracking below 70% remains `Unknown`.
+
+Added the deterministic `animated_object` negative control: a textured object moves
+and rotates in front of a fixed feature-rich background. Its substantial-change
+fraction is 0.923077, rigid-consensus parallax-proxy fraction is 0.615385, and
+cumulative displacement is 0.238466—enough to satisfy the prior broad-change High
+rule—but its mixed static/dynamic pair fraction is 0.307692, so version 1.1 returns
+`Unknown`. At 16 samples / 400 px its wall/process CPU time was 0.271830 / 0.673067
+seconds. The main heuristic remains 89.19, demonstrating score-path isolation rather
+than silently changing the deployed score.
+
+Controlled scenario results at the same configuration:
+
+- front-only: Low, 0.338502 s wall / 0.650023 s CPU;
+- animated object: Unknown, 0.271830 / 0.673067 s;
+- quarter orbit: Moderate, 0.260104 / 0.644274 s;
+- full orbit: High, 0.264197 / 0.665676 s;
+- pure camera rotation: Unknown, 0.255172 / 0.645208 s.
+
+Object-focused synthetic results were conservative: animated object Unknown with
+43.75% tracking, quarter orbit Moderate with 100% tracking, and full orbit Moderate
+with 93.75% tracking. The latter two had zero static-background/object-motion flags.
+Cycle verification succeeded for 100% and 71.43% of attempted steps respectively.
+
+Actual-video whole-frame before/after classification remained conservative. The
+previous `evaluation/viewpoint_real_validation/validation.csv` is the before source;
+new runs used the same 32-sample / 640 px configuration:
+
+- `IMG_3913.MOV`: Unknown -> Unknown; rigid parallax fraction 0.307692 ->
+  0.153846; new analysis 13.281200 s wall / 67.295626 s CPU.
+- `IMG_3914.MOV`: Unknown -> Unknown; 0.230769 -> 0.076923; 6.689200 /
+  32.968301 s.
+- `IMG_3915.MOV`: Unknown -> Unknown; 0.230769 -> 0.000000; 9.025252 /
+  35.306465 s.
+- `orbit_good.mp4`: Moderate -> Moderate; 1.000000 -> 1.000000; 0.662721 /
+  1.215327 s.
+
+The 65.5-second real `sampleVideo.mp4` shoe orbit remained Unknown because only
+7.69% of long-gap pairs had eight verified correspondences; its new run took
+9.603585 s wall / 46.136064 s CPU. The user-reported waving-hand source file was not
+present locally, so no result for that exact upload is claimed. It should be rerun
+after redeployment; the controlled animated-object case exercises the failure mode
+without being presented as real-world accuracy.
+
+Existing real object-box recordings remained Unknown because tracking covered only
+6.25% of samples, with explicit reasons. New wall/CPU times were 13.405938/62.477871
+seconds (`IMG_3913.MOV`), 6.248531/33.920956 (`IMG_3914.MOV`), and
+6.179708/34.413005 (`IMG_3915.MOV`). Their main scores matched the preserved prior
+comparison exactly: 60.75, 51.26, and 49.94.
+
+Sharpness investigation did not justify a scoring change. Current smooth synthetic
+orbit frames measured median Laplacian variance 681.339770 and visual quality 97.14;
+the deliberately blurred counterpart measured 4.781712 and 14.61. Raw pre-encoding
+smooth frames measured median 750.899019. Extremely smooth rendered images can
+still score low because Laplacian variance measures high-frequency edge energy and
+therefore confounds blur with low texture and depends on analysis scale/resampling.
+No threshold was changed without a comparative real-capture regression set.
+
+Verification commands:
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-viewpoint-v11 \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+git diff --check
+PYTHONPATH=src:. .venv/bin/python -m pytest -q
+```
+
+Compileall and `git diff --check` exited 0. The final full suite reported `89 passed,
+3 skipped in 62.69s`; skips remain the optional scikit-learn/PyTorch tests unavailable
+in the core deployment environment.
+

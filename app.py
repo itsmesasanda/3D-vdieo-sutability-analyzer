@@ -173,7 +173,7 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
           <h3>Estimated Viewpoint Diversity <span class="viewpoint-label" style="background:{view['style']['color']}">{view['label']}</span></h3>
           <p>{view['summary']}</p>
           <p><strong>Decision:</strong> {view['primary_reason'] or 'See the evidence details below.'}</p>
-          <p><strong>Evidence:</strong> {view['substantial_change_percent']}% of selected long-gap pairs show substantial change · {view['parallax_proxy_percent']}% of long-gap pairs show a cautious parallax proxy · {view['repeated_view_count']} repeated-view pair(s).</p>
+          <p><strong>Evidence:</strong> {view['substantial_change_percent']}% of selected long-gap pairs show substantial change · {view['parallax_proxy_percent']}% pass the rigid-consensus parallax proxy · {view['mixed_motion_percent']}% show static/moving-region inconsistency · {view['repeated_view_count']} repeated-view pair(s).</p>
         </div>
         """,
         unsafe_allow_html=True,
@@ -193,6 +193,7 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
             )
             st.write(
                 f"Object tracking coverage: **{view['tracking_percent']}%** · "
+                f"cycle-verified tracking steps: **{view['tracking_cycle_verified_percent']}%** · "
                 f"background-dominated long-gap pairs: **{background_text}**"
             )
         st.caption(

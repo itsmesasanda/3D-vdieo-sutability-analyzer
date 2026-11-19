@@ -211,6 +211,47 @@ def make_pure_rotation_frames(
     return frames
 
 
+def make_animated_object_frames(
+    width: int = 480, height: int = 360, frame_count: int = 24
+) -> List[np.ndarray]:
+    """Move a textured object in front of a fixed, feature-rich background.
+
+    This negative control intentionally provides strong matches and visible motion
+    without camera translation or new viewpoints of the object.
+    """
+
+    cv2 = _cv2()
+    background, object_layer, object_mask = _build_layers(width, height)
+    center = (width / 2.0, height / 2.0)
+    frames: List[np.ndarray] = []
+    for phase in np.linspace(0.0, 2.0 * np.pi, frame_count):
+        matrix = cv2.getRotationMatrix2D(
+            center, float(7.0 * np.sin(phase * 1.5)), 1.0
+        )
+        matrix[0, 2] += float(28.0 * np.sin(phase))
+        matrix[1, 2] += float(7.0 * np.sin(phase * 2.0))
+        moving_object = cv2.warpAffine(
+            object_layer,
+            matrix,
+            (width, height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        moving_mask = cv2.warpAffine(
+            object_mask,
+            matrix,
+            (width, height),
+            flags=cv2.INTER_LINEAR,
+            borderMode=cv2.BORDER_CONSTANT,
+        )
+        alpha = moving_mask.astype(np.float32)[..., None] / 255.0
+        frame = background.astype(np.float32) * (1.0 - alpha) + moving_object.astype(
+            np.float32
+        ) * alpha
+        frames.append(np.clip(frame, 0, 255).astype(np.uint8))
+    return frames
+
+
 def make_viewpoint_sweep_frames(
     sweep_degrees: float,
     width: int = 480,
@@ -452,6 +493,10 @@ def generate_test_videos(
         ),
         "pure_rotation": (
             make_pure_rotation_frames(width, height, frame_count),
+            fps,
+        ),
+        "animated_object": (
+            make_animated_object_frames(width, height, frame_count),
             fps,
         ),
         "shaky_orbit": (

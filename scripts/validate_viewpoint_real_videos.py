@@ -60,6 +60,8 @@ CSV_COLUMNS = [
     "strong_planar_or_rotation_fraction_among_changed_pairs",
     "median_within_frame_duplicate_descriptor_fraction",
     "median_separated_strict_descriptor_ambiguity_fraction",
+    "motion_field_evaluable_pair_fraction",
+    "mixed_static_dynamic_pair_fraction",
     "diagnostic_image_count",
     "diagnostic_images_json",
     "misleading_risk_flags_json",
@@ -77,6 +79,10 @@ RISK_EXPLANATIONS = {
     "object_motion_unresolved": (
         "The method assumes a static object and cannot reliably separate object motion "
         "from camera motion."
+    ),
+    "object_animation_evidence": (
+        "Long-gap correspondences repeatedly contain a broad near-static population "
+        "and a separate strongly moving population, consistent with object animation."
     ),
     "symmetry_or_repetitive_appearance": (
         "Repeated or symmetric descriptors can support geometrically plausible but "
@@ -147,6 +153,8 @@ def misleading_risk_flags(viewpoint: Mapping[str, Any]) -> List[str]:
 
     indicators = viewpoint.get("indicators", {})
     flags = ["object_motion_unresolved"]
+    if float(indicators.get("mixed_static_dynamic_pair_fraction") or 0.0) >= 0.30:
+        flags.append("object_animation_evidence")
     if float(indicators.get("valid_geometry_pair_fraction") or 0.0) >= 0.35:
         flags.append("background_feature_dominance_unresolved")
     else:
@@ -324,6 +332,12 @@ def flatten_success(
         "median_separated_strict_descriptor_ambiguity_fraction": indicators[
             "median_separated_strict_descriptor_ambiguity_fraction"
         ],
+        "motion_field_evaluable_pair_fraction": indicators.get(
+            "motion_field_evaluable_pair_fraction"
+        ),
+        "mixed_static_dynamic_pair_fraction": indicators.get(
+            "mixed_static_dynamic_pair_fraction"
+        ),
         "diagnostic_image_count": len(diagnostics),
         "diagnostic_images_json": _json_cell(list(diagnostics)),
         "misleading_risk_flags_json": _json_cell(list(risk_flags)),

@@ -52,6 +52,20 @@ def _pixel_box(box: NormalizedBox, frame: np.ndarray) -> Tuple[float, float, flo
     return (x * width, y * height, box_width * width, box_height * height)
 
 
+def _box_iou(first: NormalizedBox, second: NormalizedBox) -> float:
+    """Intersection-over-union for normalized tracking cycle validation."""
+
+    ax1, ay1, aw, ah = first
+    bx1, by1, bw, bh = second
+    ax2, ay2 = ax1 + aw, ay1 + ah
+    bx2, by2 = bx1 + bw, by1 + bh
+    intersection = max(0.0, min(ax2, bx2) - max(ax1, bx1)) * max(
+        0.0, min(ay2, by2) - max(ay1, by1)
+    )
+    union = aw * ah + bw * bh - intersection
+    return intersection / union if union > 0 else 0.0
+
+
 def _contains(point: Tuple[float, float], box: NormalizedBox, frame: np.ndarray) -> bool:
     x, y, width, height = _pixel_box(box, frame)
     return x <= point[0] <= x + width and y <= point[1] <= y + height
@@ -241,6 +255,39 @@ def track_object_regions(
                     "target_position": target,
                 }
             )
+            if propagated is not None:
+                reverse_box, reverse_evidence = _propagate_box(
+                    frames[target],
+                    frames[source],
+                    keypoints[target],
+                    keypoints[source],
+                    descriptors[target],
+                    descriptors[source],
+                    propagated,
+                    config,
+                )
+                cycle_iou = (
+                    _box_iou(boxes[source], reverse_box)
+                    if reverse_box is not None and boxes[source] is not None
+                    else 0.0
+                )
+                evidence.update(
+                    {
+                        "reverse_status": reverse_evidence["status"],
+                        "reverse_reason": reverse_evidence["reason"],
+                        "cycle_iou": round(cycle_iou, 6),
+                        "cycle_verified": (
+                            reverse_box is not None and cycle_iou >= 0.40
+                        ),
+                    }
+                )
+                if (reverse_box is not None and cycle_iou < 0.40) or (
+                    reverse_box is None
+                    and float(evidence.get("inlier_ratio") or 0.0) < 0.65
+                ):
+                    propagated = None
+                    evidence["status"] = "failed"
+                    evidence["reason"] = "forward_backward_cycle_inconsistent"
             steps.append(evidence)
             if propagated is None:
                 break
@@ -248,6 +295,13 @@ def track_object_regions(
             source = target
     tracked_count = sum(item is not None for item in boxes)
     tracked_fraction = tracked_count / len(frames)
+    propagation_steps = [
+        item for item in steps if item.get("status") != "selected"
+    ]
+    cycle_attempts = [
+        item for item in propagation_steps if "cycle_verified" in item
+    ]
+    verified_cycles = [item for item in cycle_attempts if item["cycle_verified"]]
     return {
         "representative_sample_position": reference,
         "initial_normalized_bbox": [round(value, 6) for value in box],
@@ -260,6 +314,15 @@ def track_object_regions(
         "tracked_sample_fraction": round(tracked_fraction, 6),
         "forward_reached_end": boxes[-1] is not None,
         "backward_reached_start": boxes[0] is not None,
+        "cycle_check_attempt_count": len(cycle_attempts),
+        "cycle_verified_step_fraction": round(
+            len(verified_cycles) / max(1, len(cycle_attempts)), 6
+        ),
+        "median_verified_cycle_iou": round(
+            float(np.median([item["cycle_iou"] for item in verified_cycles])), 6
+        )
+        if verified_cycles
+        else None,
         "steps": sorted(steps, key=lambda item: item["target_position"]),
     }
 
@@ -326,6 +389,11 @@ def _background_comparison(
                     ),
                     "background_verified_match_ratio": None,
                     "background_dominated": None,
+                    "object_motion_normalized": object_pair.get(
+                        "median_displacement_normalized"
+                    ),
+                    "background_motion_normalized": None,
+                    "moving_object_with_static_background": None,
                 }
             )
             continue
@@ -352,6 +420,16 @@ def _background_comparison(
                 or background_ratio >= max(0.02, object_ratio * 1.75)
             )
         )
+        object_motion = object_pair.get("median_displacement_normalized")
+        background_motion = background.get("median_displacement_normalized")
+        moving_object_with_static_background = bool(
+            int(object_pair.get("verified_matches") or 0) >= 8
+            and int(background.get("verified_matches") or 0) >= 12
+            and object_motion is not None
+            and float(object_motion) >= 0.012
+            and background_motion is not None
+            and float(background_motion) <= 0.004
+        )
         rows.append(
             {
                 "start_frame_index": int(frame_indices[start]),
@@ -367,11 +445,25 @@ def _background_comparison(
                 "object_verified_match_ratio": round(object_ratio, 6),
                 "background_verified_match_ratio": round(background_ratio, 6),
                 "background_dominated": dominated,
+                "object_motion_normalized": object_motion,
+                "background_motion_normalized": background_motion,
+                "moving_object_with_static_background": (
+                    moving_object_with_static_background
+                ),
             }
         )
     evaluated = [row for row in rows if row["evaluated"]]
     dominated_fraction = (
         float(np.mean([row["background_dominated"] for row in evaluated]))
+        if evaluated
+        else None
+    )
+    static_background_motion_fraction = (
+        float(
+            np.mean(
+                [row["moving_object_with_static_background"] for row in evaluated]
+            )
+        )
         if evaluated
         else None
     )
@@ -381,6 +473,11 @@ def _background_comparison(
         "unevaluated_pair_count": len(rows) - len(evaluated),
         "background_dominated_pair_fraction": (
             round(dominated_fraction, 6) if dominated_fraction is not None else None
+        ),
+        "moving_object_with_static_background_pair_fraction": (
+            round(static_background_motion_fraction, 6)
+            if static_background_motion_fraction is not None
+            else None
         ),
         "median_object_verified_matches": round(
             float(np.median([row["object_verified_matches"] for row in evaluated])), 6
@@ -477,6 +574,17 @@ def analyze_object_focused_viewpoint(
     ):
         insufficient.append(
             "Background-only correspondences dominate most evaluated long-gap pairs."
+        )
+    animated_object_fraction = background.get(
+        "moving_object_with_static_background_pair_fraction"
+    )
+    if (
+        background["evaluated_pair_count"] >= 3
+        and animated_object_fraction is not None
+        and float(animated_object_fraction) >= 0.30
+    ):
+        insufficient.append(
+            "The selected object moves while the surrounding background remains nearly static in multiple long-gap pairs; this is consistent with object animation rather than a camera orbit."
         )
     insufficient = list(dict.fromkeys(insufficient))
     if insufficient:

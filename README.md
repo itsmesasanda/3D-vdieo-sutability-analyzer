@@ -154,11 +154,17 @@ V2 combines these using a weighted geometric mean so saturated appearance metric
 - Exposure, clipped pixels, contrast, Laplacian sharpness, gradient magnitude, and entropy are measured per frame.
 - ORB features are matched between adjacent sampled frames. Fundamental-matrix RANSAC is preferred; homography RANSAC is an explicit fallback.
 - The viewpoint module reuses those ORB features, adds a bounded set of quarter-gap,
-  half-gap, and endpoint pairs, and detects likely repeated views. A repeated endpoint
-  can suggest loop closure but is never presented as proof of a complete orbit.
+  half-gap, and endpoint pairs, and detects likely repeated views. Its uncalibrated
+  parallax proxy now requires spatially distributed RANSAC consensus; high overlap or
+  optical flow alone is never diversity evidence. Long-gap matches that repeatedly
+  split into broad near-static and strongly moving populations force `Unknown` as
+  possible object animation. A repeated endpoint can suggest loop closure but is
+  never presented as proof of a complete orbit.
 - With an optional object box, object-internal ORB matches propagate the box using
-  affine RANSAC; object and background feature caches are then evaluated separately.
-  Failed tracking or background-dominated evaluable pairs produce `Unknown`.
+  affine RANSAC with forward/backward cycle diagnostics; object and background
+  feature caches are then evaluated separately. A moving object against a nearly
+  static matched background, failed tracking, or background-dominated evaluable pairs
+  produce `Unknown`.
 - When camera intrinsics are supplied, essential-matrix RANSAC and `recoverPose`
   provide relative rotation, translation direction (without scale), and a
   rotation-compensated bearing-change indicator. Without intrinsics these fields are

@@ -206,6 +206,11 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
         )
         if tracking
         else None,
+        "tracking_cycle_verified_percent": round(
+            100.0 * float(tracking.get("cycle_verified_step_fraction", 0.0))
+        )
+        if tracking
+        else None,
         "background_dominated_percent": (
             round(
                 100.0
@@ -230,6 +235,10 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
                     "temporally_separated_substantial_change_fraction", 0.0
                 )
             )
+        ),
+        "mixed_motion_percent": round(
+            100.0
+            * float(indicators.get("mixed_static_dynamic_pair_fraction", 0.0))
         ),
     }
 
