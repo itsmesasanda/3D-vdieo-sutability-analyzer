@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import html
 import json
 import os
 import tempfile
@@ -56,41 +57,101 @@ def _disabled_registration_prediction() -> Dict[str, Any]:
 
 APP_CSS = """
 <style>
-  .stApp { background: linear-gradient(150deg, #f6f8fb 0%, #eef3f2 55%, #f8f4ee 100%); }
-  .block-container { max-width: 1240px; padding-top: 2rem; padding-bottom: 4rem; }
-  [data-testid="stHeader"] { background: transparent; }
-  .mvp-hero { padding: 1.65rem 1.8rem; border: 1px solid rgba(20,55,50,.12); border-radius: 24px; background: linear-gradient(120deg,#123d38 0%,#1f6158 62%,#c77b3d 150%); color:white; box-shadow:0 18px 50px rgba(23,61,55,.16); margin-bottom:1.2rem; }
-  .mvp-kicker { font-size:.73rem; letter-spacing:.14em; text-transform:uppercase; opacity:.72; font-weight:700; }
-  .mvp-hero h1 { color:white; margin:.35rem 0 .5rem; font-size:clamp(2rem,4vw,3.2rem); line-height:1.02; }
-  .mvp-hero p { color:rgba(255,255,255,.82); max-width:760px; margin:0; font-size:1rem; }
-  .method-chip { display:inline-block; margin-top:1rem; padding:.35rem .7rem; border-radius:99px; background:rgba(255,255,255,.12); font-size:.76rem; }
-  .score-panel { display:flex; align-items:center; gap:1.4rem; padding:1.3rem; border-radius:22px; background:white; border:1px solid #dce6e3; box-shadow:0 10px 30px rgba(33,54,50,.07); }
-  .score-ring { width:138px; height:138px; border-radius:50%; display:grid; place-items:center; position:relative; flex:0 0 auto; }
+  :root {
+    --ink:#18212f; --muted:#5d6978; --line:#e4e8ee; --surface:#ffffff;
+    --canvas:#f5f7fa; --coral:#e85f57; --coral-dark:#c84641; --coral-soft:#fff2f0;
+    --green:#237a62; --amber:#a86816; --shadow:0 10px 30px rgba(24,33,47,.07);
+  }
+  html, body, [class*="css"] { color:var(--ink); }
+  .stApp { background:var(--canvas); color:var(--ink); }
+  .block-container { max-width:1200px; padding-top:1.4rem; padding-bottom:4rem; }
+  [data-testid="stHeader"] { background:rgba(245,247,250,.94); }
+  h1, h2, h3, h4, p, label, .stMarkdown { color:var(--ink); }
+  .mvp-hero { position:relative; overflow:hidden; padding:2rem 2.1rem; border:1px solid var(--line); border-radius:22px; background:var(--surface); box-shadow:var(--shadow); margin-bottom:1.25rem; }
+  .mvp-hero:before { content:""; position:absolute; inset:0 auto 0 0; width:7px; background:linear-gradient(180deg,var(--coral),#f3a071); }
+  .mvp-kicker { color:var(--coral-dark); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; font-weight:800; }
+  .mvp-hero h1 { color:var(--ink); margin:.4rem 0 .55rem; font-size:clamp(2rem,4vw,3.1rem); line-height:1.04; letter-spacing:-.035em; }
+  .mvp-hero p { color:var(--muted); max-width:780px; margin:0; font-size:1.02rem; line-height:1.6; }
+  .method-chip { display:inline-flex; align-items:center; margin-top:1rem; padding:.38rem .72rem; border-radius:999px; background:var(--coral-soft); color:#913c38; border:1px solid #ffd9d5; font-size:.76rem; font-weight:700; }
+  .section-heading { margin:1.65rem 0 .75rem; }
+  .section-heading .eyebrow { margin-bottom:.2rem; }
+  .section-heading h2 { margin:0; font-size:1.45rem; letter-spacing:-.02em; }
+  .section-heading p { margin:.3rem 0 0; color:var(--muted); }
+  .upload-intro { padding:1rem 1.1rem; margin:.2rem 0 .75rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); color:var(--muted); }
+  .upload-intro strong { color:var(--ink); }
+  .score-panel { display:flex; align-items:center; gap:1.6rem; padding:1.5rem; border-radius:20px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+  .score-ring { width:142px; height:142px; border-radius:50%; display:grid; place-items:center; position:relative; flex:0 0 auto; }
   .score-ring:before { content:""; position:absolute; inset:11px; background:white; border-radius:50%; }
-  .score-number { position:relative; z-index:2; font-size:2.35rem; font-weight:800; color:#173d38; line-height:.9; }
-  .score-number small { display:block; font-size:.75rem; color:#6f7f7c; font-weight:600; text-align:center; margin-top:.35rem; }
-  .score-copy h2 { margin:0 0 .25rem; color:#173d38; }
-  .score-copy p { margin:.15rem 0; color:#60706d; }
-  .component-card { min-height:112px; padding:.9rem; border-radius:16px; background:white; border:1px solid #e0e8e6; margin-bottom:.5rem; }
-  .component-card .label { font-size:.78rem; color:#657672; min-height:2.2rem; }
-  .component-card .value { font-size:1.55rem; font-weight:750; color:#173d38; }
-  .viewpoint-panel { margin-top:1rem; padding:1.15rem 1.25rem; border-radius:18px; background:white; border:1px solid #dce6e3; box-shadow:0 8px 24px rgba(33,54,50,.05); }
-  .viewpoint-label { display:inline-block; padding:.3rem .7rem; border-radius:99px; color:white; font-size:.78rem; font-weight:750; letter-spacing:.04em; }
-  .viewpoint-panel h3 { margin:.55rem 0 .25rem; color:#173d38; }
-  .viewpoint-panel p { margin:.2rem 0; color:#60706d; }
-  .registration-panel { margin-top:1rem; padding:1.15rem 1.25rem; border-radius:18px; background:linear-gradient(120deg,#f4f7ff,#fff); border:1px solid #d9e1f2; }
+  .score-number { position:relative; z-index:2; font-size:2.45rem; font-weight:850; color:var(--ink); line-height:.9; }
+  .score-number small { display:block; font-size:.72rem; color:var(--muted); font-weight:700; text-align:center; margin-top:.4rem; }
+  .score-copy h2 { margin:.18rem 0 .35rem; color:var(--ink); font-size:1.65rem; }
+  .score-copy p { margin:.2rem 0; color:var(--muted); line-height:1.5; }
+  .component-card { min-height:118px; padding:1rem; border-radius:15px; background:var(--surface); border:1px solid var(--line); box-shadow:0 5px 16px rgba(24,33,47,.04); margin-bottom:.45rem; }
+  .component-card .label { font-size:.78rem; color:var(--muted); min-height:2.35rem; font-weight:650; }
+  .component-card .value { font-size:1.7rem; font-weight:800; color:var(--ink); }
+  .attention-card { height:100%; padding:1rem; border-radius:14px; background:#fff9f8; border:1px solid #f4d5d2; }
+  .attention-card h4 { margin:0 0 .35rem; color:#7e302d; font-size:.95rem; }
+  .attention-card p { margin:0; color:#674c4a; font-size:.86rem; line-height:1.45; }
+  .viewpoint-panel { margin-top:.35rem; padding:1.25rem 1.35rem; border-radius:18px; background:var(--surface); border:1px solid #ead8d6; border-left:5px solid var(--coral); box-shadow:0 7px 22px rgba(24,33,47,.05); }
+  .viewpoint-label { display:inline-block; padding:.28rem .68rem; border-radius:999px; color:white; font-size:.75rem; font-weight:800; letter-spacing:.03em; vertical-align:middle; }
+  .viewpoint-panel h3 { margin:.5rem 0 .3rem; color:var(--ink); }
+  .viewpoint-panel p { margin:.3rem 0; color:var(--muted); line-height:1.5; }
+  .evidence-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; margin-top:.9rem; }
+  .evidence-item { padding:.7rem; border-radius:11px; background:#f8f9fb; border:1px solid #eceff3; }
+  .evidence-item span { display:block; color:var(--muted); font-size:.7rem; line-height:1.25; }
+  .evidence-item strong { display:block; color:var(--ink); font-size:1.05rem; margin-top:.18rem; }
+  .registration-panel { margin-top:1rem; padding:1.05rem 1.2rem; border-radius:15px; background:#f8f9fb; border:1px solid var(--line); }
+  .registration-panel h3 { margin:.35rem 0; color:var(--ink); }
+  .registration-panel p { margin:.25rem 0; color:var(--muted); }
   .registration-value { font-size:2rem; font-weight:800; color:#294b7a; }
-  .timeline-row { position:relative; padding:.8rem .9rem .75rem; background:white; border:1px solid #e0e8e6; border-radius:14px; margin:.45rem 0; overflow:hidden; }
-  .timeline-row strong { color:#173d38; }
-  .timeline-meta { color:#71807d; font-size:.8rem; }
-  .timeline-track { height:6px; background:#edf1f0; border-radius:9px; margin-top:.55rem; position:relative; overflow:hidden; }
-  .timeline-span { position:absolute; height:100%; min-width:5px; border-radius:9px; background:linear-gradient(90deg,#e6a23c,#df5b5b); }
-  .recommendation { border-left:4px solid #d88c38; padding:.8rem 1rem; background:#fff; border-radius:0 14px 14px 0; margin:.55rem 0; }
-  .recommendation h4 { margin:0 0 .35rem; color:#173d38; }
-  .recommendation p { margin:.2rem 0; color:#53625f; font-size:.9rem; }
-  .eyebrow { color:#3f766f; font-weight:750; letter-spacing:.08em; text-transform:uppercase; font-size:.72rem; }
-  .disclaimer { padding:.8rem 1rem; background:#fff8e8; border:1px solid #ecd8a6; border-radius:13px; color:#6c5725; }
-  div[data-testid="stFileUploader"] { background:rgba(255,255,255,.72); border-radius:18px; padding:.35rem .7rem; border:1px dashed #99b2ad; }
+  .timeline-row { position:relative; padding:.9rem 1rem .82rem; background:var(--surface); border:1px solid var(--line); border-radius:13px; margin:.5rem 0; overflow:hidden; }
+  .timeline-row strong { color:var(--ink); }
+  .timeline-meta { color:var(--muted); font-size:.82rem; }
+  .timeline-track { height:6px; background:#edf0f4; border-radius:9px; margin-top:.65rem; position:relative; overflow:hidden; }
+  .timeline-span { position:absolute; height:100%; min-width:5px; border-radius:9px; background:linear-gradient(90deg,#f09a68,var(--coral)); }
+  .recommendation { border-left:4px solid var(--coral); padding:.9rem 1rem; background:var(--surface); border-radius:0 13px 13px 0; border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); margin:.6rem 0; }
+  .recommendation h4 { margin:0 0 .35rem; color:var(--ink); }
+  .recommendation p { margin:.24rem 0; color:var(--muted); font-size:.9rem; }
+  .eyebrow { color:var(--coral-dark); font-weight:800; letter-spacing:.09em; text-transform:uppercase; font-size:.7rem; }
+  .disclaimer { padding:.9rem 1rem; background:#fff8e9; border:1px solid #ead7a7; border-radius:12px; color:#634f20; }
+  .step-card { min-height:112px; padding:1rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); }
+  .step-number { color:var(--coral-dark); font-size:.72rem; font-weight:850; letter-spacing:.08em; }
+  .step-card strong { display:block; margin:.3rem 0; color:var(--ink); }
+  .step-card p { margin:0; color:var(--muted); font-size:.86rem; }
+  div[data-testid="stFileUploader"] { background:var(--surface); border-radius:18px; padding:.45rem; border:1px solid var(--line); box-shadow:var(--shadow); }
+  [data-testid="stFileUploaderDropzone"] { min-height:150px; background:#fffafa; border:2px dashed #e7aaa6; border-radius:14px; }
+  [data-testid="stFileUploaderDropzone"] * { color:var(--ink) !important; }
+  [data-testid="stFileUploaderDropzone"] small { color:var(--muted) !important; }
+  [data-testid="stCheckbox"] label p, [data-testid="stSlider"] label p, [data-testid="stWidgetLabel"] p { color:var(--ink) !important; font-weight:600; }
+  [data-testid="stExpander"] { background:var(--surface); border:1px solid var(--line); border-radius:13px; overflow:hidden; }
+  [data-testid="stExpander"] summary, [data-testid="stExpander"] summary p { color:var(--ink) !important; font-weight:700; }
+  .stTabs [data-baseweb="tab-list"] { gap:.35rem; background:#eef1f5; padding:.32rem; border-radius:12px; }
+  .stTabs [data-baseweb="tab"] { height:42px; border-radius:9px; color:#475466; font-weight:700; }
+  .stTabs [aria-selected="true"] { background:white !important; color:var(--ink) !important; box-shadow:0 2px 8px rgba(24,33,47,.08); }
+  .stTabs [data-baseweb="tab-highlight"] { background:var(--coral); }
+  .stButton > button, .stDownloadButton > button { border-radius:10px; font-weight:750; min-height:44px; }
+  .stButton > button[kind="primary"] { background:var(--coral); border-color:var(--coral); color:white; }
+  .stButton > button[kind="primary"]:hover { background:var(--coral-dark); border-color:var(--coral-dark); }
+  [data-testid="stProgressBar"] > div > div { background:var(--coral); }
+  [data-testid="stAlert"] { border-radius:12px; color:var(--ink); }
+  [data-testid="stMetric"] { background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:.8rem; }
+  @media (max-width: 780px) {
+    .block-container { padding:1rem .75rem 3rem; }
+    .mvp-hero { padding:1.35rem 1.2rem; border-radius:17px; }
+    .mvp-hero h1 { font-size:2rem; }
+    .score-panel { align-items:flex-start; gap:1rem; padding:1.1rem; }
+    .score-ring { width:108px; height:108px; }
+    .score-number { font-size:1.85rem; }
+    .score-copy h2 { font-size:1.3rem; }
+    .evidence-grid { grid-template-columns:repeat(2,minmax(0,1fr)); }
+    .component-card { min-height:auto; }
+    .stTabs [data-baseweb="tab"] { font-size:.78rem; padding-left:.55rem; padding-right:.55rem; }
+  }
+  @media (max-width: 460px) {
+    .score-panel { flex-direction:column; }
+    .evidence-grid { grid-template-columns:1fr; }
+    .method-chip { line-height:1.35; }
+  }
 </style>
 """
 
@@ -99,13 +160,51 @@ def _hero(st: Any) -> None:
     st.markdown(
         """
         <section class="mvp-hero">
-          <div class="mvp-kicker">Capture intelligence · CPU heuristic</div>
-          <h1>Will this video reconstruct well?</h1>
-          <p>Inspect sharpness, lighting, view overlap and camera motion before spending time on a 3D reconstruction run.</p>
-          <span class="method-chip">CPU heuristic · live ML disabled · no reconstruction claim</span>
+          <div class="mvp-kicker">3D capture readiness</div>
+          <h1>Check your video before reconstruction</h1>
+          <p>Review image quality, feature continuity, view overlap and camera motion using a transparent, CPU-based analysis.</p>
+          <span class="method-chip">Explainable heuristic · temporary upload processing · no reconstruction claim</span>
         </section>
         """,
         unsafe_allow_html=True,
+    )
+
+
+def _section_heading(st: Any, eyebrow: str, title: str, description: str) -> None:
+    st.markdown(
+        f"""
+        <div class="section-heading">
+          <div class="eyebrow">{html.escape(eyebrow)}</div>
+          <h2>{html.escape(title)}</h2>
+          <p>{html.escape(description)}</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def _display_metric(value: Any, suffix: str = "%") -> str:
+    """Format optional presentation evidence without implying a measured zero."""
+
+    if value is None:
+        return "Not available"
+    return f"{value}{suffix}"
+
+
+def _friendly_analysis_error(exc: Exception) -> str:
+    """Return a user-facing upload error without exposing implementation details."""
+
+    message = str(exc).lower()
+    if "deployment limit" in message or "unsupported video extension" in message:
+        return str(exc)
+    if "could not open video" in message or "codec" in message or "corrupt" in message:
+        return (
+            "We could not decode this video. Try exporting it as MP4 (H.264 or HEVC) "
+            "or MOV, then upload the new file."
+        )
+    return (
+        "We could not complete this analysis. Your main data was not retained. "
+        "Try a shorter MP4/MOV file or reload the app and try again."
     )
 
 
@@ -133,7 +232,12 @@ def _score_panel(st: Any, report: Dict[str, Any]) -> None:
 
 
 def _components(st: Any, report: Dict[str, Any]) -> None:
-    st.subheader("Five signals behind the score")
+    _section_heading(
+        st,
+        "Score breakdown",
+        "Five signals behind the result",
+        "Each metric is a measured heuristic component, not a success probability.",
+    )
     columns = st.columns(5)
     for column, row in zip(columns, component_rows(report)):
         with column:
@@ -145,6 +249,33 @@ def _components(st: Any, report: Dict[str, Any]) -> None:
             )
             st.progress(int(round(row["score"])))
             st.caption(row["explanation"])
+
+
+def _attention_summary(st: Any, rows: List[Dict[str, Any]]) -> None:
+    _section_heading(
+        st,
+        "Priority review",
+        "What to improve first",
+        "The most important sampled issues are summarized here; open the timeline for exact intervals.",
+    )
+    cards = recommendation_cards(rows)[:3]
+    if not cards:
+        st.success(
+            "No high-priority sampled problem was detected. Still verify that every required side of the object is visible."
+        )
+        return
+    columns = st.columns(len(cards))
+    for column, card in zip(columns, cards):
+        with column:
+            st.markdown(
+                f"""
+                <div class="attention-card">
+                  <h4>{html.escape(card['label'])} · {html.escape(card['where'])}</h4>
+                  <p>{html.escape(card['action'])}</p>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 
 def _uncertainty(st: Any, report: Dict[str, Any]) -> None:
@@ -165,37 +296,64 @@ def _uncertainty(st: Any, report: Dict[str, Any]) -> None:
 
 
 def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
-    view = viewpoint_diversity_view(report)
+    try:
+        view = viewpoint_diversity_view(report)
+    except Exception:
+        st.warning(
+            "Experimental viewpoint evidence could not be prepared for display. "
+            "The heuristic suitability score above is still complete and unchanged."
+        )
+        return
+    if not isinstance(view, dict):
+        st.warning(
+            "Experimental viewpoint evidence is unavailable in this report version. "
+            "The heuristic suitability score above is still complete and unchanged."
+        )
+        return
+    style = view.get("style") if isinstance(view.get("style"), dict) else {}
+    substantial = _display_metric(view.get("substantial_change_percent"))
+    parallax = _display_metric(view.get("parallax_proxy_percent"))
+    mixed_motion = _display_metric(view.get("mixed_motion_percent"))
+    repeated = _display_metric(view.get("repeated_view_count"), suffix="")
+    primary_reason = view.get("primary_reason") or "No additional decision detail is available."
     st.markdown(
         f"""
         <div class="viewpoint-panel">
-          <div class="eyebrow">Separate result · does not change the suitability score</div>
-          <h3>Estimated Viewpoint Diversity <span class="viewpoint-label" style="background:{view['style']['color']}">{view['label']}</span></h3>
-          <p>{view['summary']}</p>
-          <p><strong>Decision:</strong> {view['primary_reason'] or 'See the evidence details below.'}</p>
-          <p><strong>Evidence:</strong> {view['substantial_change_percent']}% of selected long-gap pairs show substantial change · {view['parallax_proxy_percent']}% pass the rigid-consensus parallax proxy · {view['mixed_motion_percent']}% show static/moving-region inconsistency · {view['repeated_view_count']} repeated-view pair(s).</p>
+          <div class="eyebrow">Experimental · separate from the suitability score</div>
+          <h3>Estimated Viewpoint Diversity <span class="viewpoint-label" style="background:{style.get('color', '#6f7f7c')}">{html.escape(str(view.get('label', 'Unknown')))}</span></h3>
+          <p>{html.escape(str(view.get('summary') or 'Viewpoint evidence is not available.'))}</p>
+          <p><strong>Decision:</strong> {html.escape(str(primary_reason))}</p>
+          <div class="evidence-grid">
+            <div class="evidence-item"><span>Substantial long-gap change</span><strong>{substantial}</strong></div>
+            <div class="evidence-item"><span>Rigid-consensus parallax proxy</span><strong>{parallax}</strong></div>
+            <div class="evidence-item"><span>Mixed static/moving evidence</span><strong>{mixed_motion}</strong></div>
+            <div class="evidence-item"><span>Repeated-view pairs</span><strong>{repeated}</strong></div>
+          </div>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    with st.expander("Viewpoint-diversity filming guidance", expanded=view["label"] != "High"):
-        for recommendation in view["recommendations"]:
+    with st.expander(
+        "Viewpoint guidance and research limitations",
+        expanded=view.get("label") in {"Low", "Unknown"},
+    ):
+        for recommendation in view.get("recommendations", []):
             st.write(f"- {recommendation}")
-        if not view["intrinsics_used"]:
+        if not view.get("intrinsics_used", False):
             st.caption(
                 "No camera intrinsics were supplied. Calibrated relative pose and rotation-compensated parallax remain unavailable."
             )
-        if view["analysis_mode"] == "object_focused":
+        if view.get("analysis_mode") == "object_focused":
             background_text = (
-                f"{view['background_dominated_percent']}%"
-                if view["background_dominated_percent"] is not None
-                else "not evaluable because tracking failed"
+                _display_metric(view.get("background_dominated_percent"))
             )
             st.write(
-                f"Object tracking coverage: **{view['tracking_percent']}%** · "
-                f"cycle-verified tracking steps: **{view['tracking_cycle_verified_percent']}%** · "
+                f"Object tracking coverage: **{_display_metric(view.get('tracking_percent'))}** · "
+                f"cycle-verified tracking steps: **{_display_metric(view.get('tracking_cycle_verified_percent'))}** · "
                 f"background-dominated long-gap pairs: **{background_text}**"
             )
+        for warning in view.get("warnings", []):
+            st.caption(f"• {warning}")
         st.caption(
             "This category does not measure exact orbit angle or the percentage of object surface captured."
         )
@@ -217,15 +375,17 @@ def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
             unsafe_allow_html=True,
         )
     else:
-        message = (
-            "**Predicted COLMAP image registration: unavailable**\n\n"
-            f"{view['reason']}\n\n"
-            "The main suitability score and experimental viewpoint category are still valid and unchanged."
+        st.markdown(
+            f"""
+            <div class="registration-panel">
+              <div class="eyebrow">Live ML prediction unavailable</div>
+              <h3>COLMAP registration estimate is not active</h3>
+              <p>{html.escape(str(view.get('reason') or 'No compatible model artifact is available.'))}</p>
+              <p>The heuristic suitability result remains available and does not depend on this model.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
         )
-        if view["status"] == "incompatible":
-            st.warning(message)
-        else:
-            st.info(message)
 
 
 def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
@@ -469,8 +629,22 @@ def _run_uploaded_diagnostics(st: Any, upload: Any, rows: List[Dict[str, Any]]) 
 
 
 def _analysis_view(st: Any) -> None:
+    _section_heading(
+        st,
+        "New analysis",
+        "Upload an object capture",
+        "Use a short MP4 or MOV showing one mostly static object. The standard heuristic is always available; advanced geometry is optional.",
+    )
+    st.markdown(
+        f"""
+        <div class="upload-intro">
+          <strong>Recommended:</strong> one slow continuous orbit, diffuse lighting, sharp focus and 60–80% overlap. Maximum upload size: {MAX_UPLOAD_MB} MB.
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
     upload = st.file_uploader(
-        "Drop in an object-orbit video",
+        "Upload or drop a video",
         type=["mp4", "mov", "avi", "mkv", "webm", "m4v", "mpg", "mpeg"],
         help=(
             f"For best evidence, record a slow orbit around one mostly static object. "
@@ -479,70 +653,92 @@ def _analysis_view(st: Any) -> None:
     )
     if upload is None:
         left, middle, right = st.columns(3)
-        left.info("**1 · Record**\n\nOne static object, diffuse light, slow continuous orbit.")
-        middle.info("**2 · Analyze**\n\nUniform samples cover the complete declared timeline.")
-        right.info("**3 · Improve**\n\nInspect exact intervals and retake what needs fixing.")
+        for column, number, title, body in (
+            (left, "01", "Record steadily", "Keep the object still and move the camera in a slow lateral orbit."),
+            (middle, "02", "Analyze the capture", "Uniform samples check sharpness, lighting, feature continuity and motion."),
+            (right, "03", "Retake with confidence", "Use the prioritized warnings and filming recommendations to improve the next pass."),
+        ):
+            column.markdown(
+                f"<div class='step-card'><div class='step-number'>{number}</div><strong>{title}</strong><p>{body}</p></div>",
+                unsafe_allow_html=True,
+            )
         return
-    include_viewpoint_diversity = st.checkbox(
-        "Run experimental viewpoint-diversity analysis",
-        value=False,
-        help=(
-            "Optional and separate from the suitability score. It adds long-gap "
-            "geometric comparisons and CPU time; any failure is isolated."
-        ),
-    )
-    use_object_box = include_viewpoint_diversity and st.checkbox(
-        "Focus viewpoint analysis on a selected object region",
-        value=False,
-        help=(
-            "The suitability score remains whole-frame and unchanged. Only the separate "
-            "viewpoint category uses the tracked box."
-        ),
-    )
+    upload_size_mb = len(upload.getbuffer()) / (1024 * 1024)
+    st.caption(f"Selected: {upload.name} · {upload_size_mb:.1f} MB")
+    include_viewpoint_diversity = False
+    use_object_box = False
     object_bbox = None
-    if use_object_box:
-        try:
-            preview = _representative_upload_frame(st, upload)
-        except Exception as exc:
-            st.warning(f"Object-selection preview unavailable: {exc}")
-            preview = None
-        horizontal = st.slider(
-            "Horizontal object bounds (%)", 0, 100, (25, 75), step=1
+    with st.expander("Advanced viewpoint analysis", expanded=False):
+        st.caption(
+            "Experimental and separate from the suitability score. It adds long-gap geometric checks and may return Unknown when evidence is insufficient."
         )
-        vertical = st.slider(
-            "Vertical object bounds (%)", 0, 100, (10, 90), step=1
+        include_viewpoint_diversity = st.checkbox(
+            "Run experimental viewpoint-diversity analysis",
+            value=False,
+            key="advanced_viewpoint_enabled",
+            help="Any failure is isolated and cannot invalidate the main heuristic report.",
         )
-        if horizontal[1] - horizontal[0] < 5 or vertical[1] - vertical[0] < 5:
-            st.warning("The selected box must cover at least 5% in both dimensions.")
-            return
-        object_bbox = [
-            horizontal[0] / 100.0,
-            vertical[0] / 100.0,
-            (horizontal[1] - horizontal[0]) / 100.0,
-            (vertical[1] - vertical[0]) / 100.0,
-        ]
-        if preview is not None:
-            try:
-                import cv2
+        if include_viewpoint_diversity:
+            use_object_box = st.checkbox(
+                "Focus geometry on a selected object region",
+                value=False,
+                key="advanced_object_region_enabled",
+                help="The main score remains whole-frame and unchanged.",
+            )
+            if use_object_box:
+                st.info(
+                    "Draw a generous region around the complete object. Include enough margin for its motion, but avoid large background areas. The tracker must follow this region across the full video."
+                )
+                try:
+                    preview = _representative_upload_frame(st, upload)
+                except Exception:
+                    st.warning(
+                        "The representative frame could not be decoded. Continue without object-focused analysis or export the video as MP4/MOV."
+                    )
+                    preview = None
+                preview_column, control_column = st.columns([1.45, 1.0])
+                with control_column:
+                    horizontal = st.slider(
+                        "Horizontal bounds (%)", 0, 100, (25, 75), step=1
+                    )
+                    vertical = st.slider(
+                        "Vertical bounds (%)", 0, 100, (10, 90), step=1
+                    )
+                    st.caption(
+                        "The preview uses the middle frame. Verify that the box encloses the whole object, including moving parts."
+                    )
+                if horizontal[1] - horizontal[0] < 5 or vertical[1] - vertical[0] < 5:
+                    st.warning("The selected box must cover at least 5% in both dimensions.")
+                    return
+                object_bbox = [
+                    horizontal[0] / 100.0,
+                    vertical[0] / 100.0,
+                    (horizontal[1] - horizontal[0]) / 100.0,
+                    (vertical[1] - vertical[0]) / 100.0,
+                ]
+                with preview_column:
+                    if preview is not None:
+                        try:
+                            import cv2
 
-                annotated = preview.copy()
-                height, width = annotated.shape[:2]
-                start = (
-                    round(object_bbox[0] * width),
-                    round(object_bbox[1] * height),
-                )
-                end = (
-                    round((object_bbox[0] + object_bbox[2]) * width),
-                    round((object_bbox[1] + object_bbox[3]) * height),
-                )
-                cv2.rectangle(annotated, start, end, (22, 210, 120), 3)
-                st.image(
-                    annotated,
-                    caption="Middle-frame selection; tracking must remain reliable across the timeline.",
-                    use_column_width=True,
-                )
-            except Exception:
-                st.image(preview, use_column_width=True)
+                            annotated = preview.copy()
+                            height, width = annotated.shape[:2]
+                            start = (
+                                round(object_bbox[0] * width),
+                                round(object_bbox[1] * height),
+                            )
+                            end = (
+                                round((object_bbox[0] + object_bbox[2]) * width),
+                                round((object_bbox[1] + object_bbox[3]) * height),
+                            )
+                            cv2.rectangle(annotated, start, end, (232, 95, 87), 4)
+                            st.image(
+                                annotated,
+                                caption="Representative middle frame with the selected tracking region.",
+                                use_container_width=True,
+                            )
+                        except Exception:
+                            st.image(preview, use_container_width=True)
     buffer_digest = hashlib.sha256(upload.getbuffer()).hexdigest()
     bbox_key = tuple(object_bbox) if object_bbox is not None else None
     existing = st.session_state.get("video_analysis_cache")
@@ -561,7 +757,7 @@ def _analysis_view(st: Any) -> None:
         use_container_width=True,
     )
     if not analyze_clicked and not matching_cache:
-        st.info("Choose the optional object region, then click Analyze video.")
+        st.info("Your video is ready. Configure optional advanced analysis, then select Analyze video.")
         return
     try:
         result = _run_uploaded_analysis(
@@ -571,7 +767,7 @@ def _analysis_view(st: Any) -> None:
             include_viewpoint_diversity=include_viewpoint_diversity,
         )
     except Exception as exc:
-        st.error(f"Analysis failed: {exc}")
+        st.error(_friendly_analysis_error(exc))
         return
     report = result["report"]
     overview, problems, guidance, technical = st.tabs(
@@ -579,10 +775,16 @@ def _analysis_view(st: Any) -> None:
     )
     with overview:
         _score_panel(st, report)
-        st.write("")
         _components(st, report)
-        _registration_prediction(st, report)
+        _attention_summary(st, result["timeline"])
+        _section_heading(
+            st,
+            "Independent geometry",
+            "Experimental viewpoint evidence",
+            "This category is intentionally separate and cannot change the suitability score.",
+        )
         _viewpoint_diversity(st, report)
+        _registration_prediction(st, report)
         _uncertainty(st, report)
     with problems:
         _timeline(st, result["timeline"])
@@ -604,9 +806,9 @@ def _analysis_view(st: Any) -> None:
         if triggered:
             st.warning("Documented physical reliability gates affected the final score.")
             st.dataframe(triggered, use_container_width=True, hide_index=True)
-        st.markdown("**Warnings**")
-        for warning in report["warnings"]:
-            st.write(f"- {warning}")
+        with st.expander("Method warnings and research limitations", expanded=False):
+            for warning in report["warnings"]:
+                st.write(f"- {warning}")
         with st.expander("Full JSON report"):
             st.json(report, expanded=False)
         if report.get("performance_profile"):
@@ -634,14 +836,26 @@ def _analysis_view(st: Any) -> None:
 
 
 def _evaluation_view(st: Any) -> None:
-    st.markdown("### Offline experimental ML comparison")
-    st.info(
-        "**Best offline model: Ridge** — grouped cross-validation MAE "
-        "**19.62 percentage points** across 647 historical records, with physical "
-        "source groups kept together. No independent held-out evaluation was "
-        "completed. Historical preprocessing has not been proven identical to the "
-        "live upload path, so **live Ridge and Random Forest predictions are "
-        "unavailable**. This estimate does not guarantee successful 3D reconstruction."
+    _section_heading(
+        st,
+        "Research evidence",
+        "Offline experimental ML comparison",
+        "Historical experiments are shown for transparency and are not used for live predictions.",
+    )
+    first, second, third = st.columns(3)
+    first.metric("Best offline model", "Ridge")
+    second.metric("Grouped-CV MAE", "19.62 pp")
+    third.metric("Historical records", "647")
+    st.markdown(
+        """
+        <div class="registration-panel">
+          <div class="eyebrow">Live ML unavailable</div>
+          <h3>Offline evidence only</h3>
+          <p>No independent held-out evaluation was completed, and historical preprocessing has not been proven identical to the live video path. Ridge and Random Forest predictions therefore remain disabled.</p>
+          <p>Predicted image-registration percentage would not guarantee successful 3D reconstruction.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
     )
     with st.expander("Offline grouped-CV results"):
         st.dataframe(
@@ -667,7 +881,12 @@ def _evaluation_view(st: Any) -> None:
             hide_index=True,
         )
     st.divider()
-    st.markdown("### Preserved human-feedback evaluation")
+    _section_heading(
+        st,
+        "Human review",
+        "Preserved evaluation evidence",
+        "These observations document known failure modes; they are not an accuracy benchmark.",
+    )
     st.markdown(
         "<div class='disclaimer'><strong>Not an accuracy benchmark.</strong> These four videos informed the v2 failure-mode audit, only one has a numerical human estimate, and none has completed downstream reconstruction ground truth.</div>",
         unsafe_allow_html=True,

@@ -1719,3 +1719,74 @@ Compileall and `git diff --check` exited 0. The final full suite reported `89 pa
 3 skipped in 62.69s`; skips remain the optional scikit-learn/PyTorch tests unavailable
 in the core deployment environment.
 
+## Streamlit presentation compatibility fix and UI redesign — complete (2026-11-19)
+
+Fixed the deployed viewpoint presentation crash without modifying analyzer geometry
+or any score path. The revised analyzer emits
+`viewpoint_diversity.indicators.temporally_separated_substantial_change_fraction`;
+the presenter converts it into the display-only `substantial_change_percent`. The
+crash was consistent with `app.py` and `presentation.py` being deployed from
+different schema revisions. The renderer no longer uses direct indexing for optional
+viewpoint fields, and the presentation model now returns `None` for missing,
+non-finite, malformed, or unavailable evidence instead of inventing `0%`. The UI
+renders these values as `Not available`. Malformed/older partial presentation
+payloads and optional presentation exceptions cannot break the heuristic report.
+
+Redesigned the app as a responsive light analytics dashboard with a restrained coral
+accent, white cards, dark typography, higher-contrast tabs/widgets, consistent
+progress bars, and desktop/mobile breakpoints at 780 px and 460 px. The upload area
+now includes concise capture guidance and a stronger drop zone. Advanced viewpoint
+analysis is isolated in an expander. Object-region selection uses a persistent
+middle-frame preview, coral bounding box, two-axis controls, and explicit guidance to
+cover the complete object with motion margin while excluding unnecessary background.
+
+The result hierarchy now presents the overall score, five components, up to three
+priority improvements, experimental viewpoint evidence, disabled live ML status,
+and uncertainty in that order. Technical warnings, performance data, full JSON, and
+research limitations remain available in expanders. The Evaluation tab uses metric
+cards for the offline Ridge result while explicitly stating that live Ridge/Random
+Forest inference is disabled and no independent held-out evaluation exists. Upload
+errors are mapped to concise user guidance; ordinary users do not receive raw
+tracebacks (`showErrorDetails = false` remains configured).
+
+Real upload-path verification with experimental viewpoint enabled:
+
+- `WhatsApp Video 2026-11-19 at 5.43.01 PM.mp4` (the waving rendered-hand negative
+  control): score 56.60; unchanged visual/lighting/tracking/overlap/path components
+  1.66/100.00/88.53/77.80/70.80; viewpoint Unknown because most samples are too
+  blurry for trustworthy geometry; display fields 31% substantial change, 38%
+  rigid-consensus proxy, 0% mixed motion, one repeated pair; 0.745154 s end-to-end.
+- `IMG_3913.MOV`: score 78.54 unchanged; Unknown displayed successfully; 8.406053 s.
+- `IMG_3914.MOV`: score 60.00 unchanged; Unknown displayed successfully; 4.311065 s.
+- `IMG_3915.MOV`: score 48.51 unchanged; Unknown displayed successfully; 4.574217 s.
+
+All four reports retained `registration_prediction.status = unavailable`. The three
+smartphone scores exactly match the pre-UI geometry-revision results, and the waving
+hand reproduces the reported high feature tracking, overlap, and camera-path
+components without any scoring modification.
+
+Regression coverage renders Low, Moderate, High, pure-rotation Unknown,
+animated-object Unknown, completely missing evidence, malformed results, and an
+older partial presentation payload. Missing evidence renders four explicit `Not
+available` values. Streamlit `AppTest` covers the complete desktop app structure;
+deployment tests assert the light theme, high-contrast selectors, upload drop zone,
+and both responsive breakpoints. Local Streamlit startup on port 8503 succeeded and
+`/_stcore/health` returned `ok`. No browser screenshot automation was available, so
+mobile validation is structural/responsive-CSS validation rather than a pixel-level
+device screenshot claim.
+
+Final checks:
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-ui \
+  .venv/bin/python -m compileall -q app.py src tests
+git diff --check
+PYTHONPATH=src:. .venv/bin/python scripts/check_streamlit_deployment.py
+PYTHONPATH=src:. .venv/bin/python -m pytest -q
+```
+
+Compileall and `git diff --check` exited 0, deployment preflight printed `PASS`, and
+the final full suite reported `98 passed, 3 skipped in 102.59s`. The skips remain optional
+scikit-learn/PyTorch tests. No scoring, ML feature, artifact, model, geometry-decision,
+COLMAP, timestamp-diagnostic, or reconstruction code changed.
+

@@ -349,6 +349,12 @@ cannot abort or change the main score. Uploaded bytes are rejected above 150 MB,
 written to a unique temporary file, and removed in a `finally` block. The analyzer
 retains at most 32 downscaled analysis samples by default.
 
+The Streamlit interface uses a responsive light dashboard with mobile breakpoints at
+780 px and 460 px. Advanced viewpoint controls and object-region selection are kept
+inside a separate expander. Optional viewpoint metrics are nullable: missing
+geometric evidence is displayed as `Not available`, never silently converted to
+zero, and a presentation-schema mismatch cannot break the heuristic result.
+
 Local preflight:
 
 ```bash

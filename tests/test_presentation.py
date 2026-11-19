@@ -11,6 +11,7 @@ from video_suitability.presentation import (
     recommendation_cards,
     score_style,
     timeline_rows,
+    viewpoint_diversity_view,
 )
 
 
@@ -104,4 +105,103 @@ def test_streamlit_app_renders_all_competition_views_without_exceptions():
     ]
     assert len(rendered.get("file_uploader")) == 1
     assert len(rendered.get("metric")) >= 3
+
+
+class _ViewpointRendererStub:
+    def __init__(self):
+        self.markup = ""
+        self.messages = []
+
+    def markdown(self, value, **_kwargs):
+        self.markup += str(value)
+
+    def expander(self, *_args, **_kwargs):
+        return self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def write(self, value):
+        self.messages.append(str(value))
+
+    def caption(self, value):
+        self.messages.append(str(value))
+
+    def warning(self, value):
+        self.messages.append(str(value))
+
+
+@pytest.mark.parametrize(
+    ("scenario", "expected"),
+    [
+        ("front_only", "Low"),
+        ("quarter_orbit", "Moderate"),
+        ("full_orbit", "High"),
+        ("pure_rotation", "Unknown"),
+        ("animated_object", "Unknown"),
+    ],
+)
+def test_viewpoint_panel_renders_every_category_without_key_errors(
+    analysis_reports, scenario, expected
+):
+    fake = _ViewpointRendererStub()
+    app._viewpoint_diversity(fake, analysis_reports[scenario])
+    assert expected in fake.markup
+    assert "Substantial long-gap change" in fake.markup
+    assert "Not available" not in fake.markup
+
+
+def test_viewpoint_panel_marks_missing_optional_evidence_not_available():
+    report = {
+        "viewpoint_diversity": {
+            "label": "Unknown",
+            "summary": "Experimental analysis was not run.",
+            "evidence_status": "insufficient",
+            "method": {"affects_overall_score": False},
+            "indicators": {},
+            "decision_explanation": {},
+            "recommendations": [],
+            "warnings": [],
+        }
+    }
+    view = viewpoint_diversity_view(report)
+    assert view["substantial_change_percent"] is None
+    assert view["parallax_proxy_percent"] is None
+    assert view["mixed_motion_percent"] is None
+    assert view["repeated_view_count"] is None
+
+    fake = _ViewpointRendererStub()
+    app._viewpoint_diversity(fake, report)
+    assert fake.markup.count("Not available") == 4
+
+
+def test_viewpoint_view_model_tolerates_missing_or_malformed_result():
+    for report in ({}, {"viewpoint_diversity": None}):
+        view = viewpoint_diversity_view(report)
+        assert view["label"] == "Unknown"
+        assert view["substantial_change_percent"] is None
+
+
+def test_viewpoint_panel_tolerates_older_partial_presentation_schema(monkeypatch):
+    monkeypatch.setattr(
+        app,
+        "viewpoint_diversity_view",
+        lambda _report: {
+            "label": "Unknown",
+            "summary": "Partial legacy presentation payload.",
+            "style": {"color": "#6f7f7c"},
+        },
+    )
+    fake = _ViewpointRendererStub()
+    app._viewpoint_diversity(fake, {"viewpoint_diversity": {}})
+    assert "Partial legacy presentation payload" in fake.markup
+    assert fake.markup.count("Not available") == 4
+
+    monkeypatch.setattr(app, "viewpoint_diversity_view", lambda _report: None)
+    fallback = _ViewpointRendererStub()
+    app._viewpoint_diversity(fallback, {})
+    assert any("heuristic suitability score" in item for item in fallback.messages)
 

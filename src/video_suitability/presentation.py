@@ -8,8 +8,9 @@ without installing the optional UI dependency.
 from __future__ import annotations
 
 import csv
+import math
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence
+from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 SUBSCORE_PRESENTATION = {
     "visual_quality": (
@@ -170,10 +171,27 @@ def component_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
     return rows
 
 
+def _optional_percentage(value: Any) -> Optional[int]:
+    """Convert an analyzer fraction to a display percentage without inventing zero."""
+
+    if value is None:
+        return None
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(numeric):
+        return None
+    return round(100.0 * numeric)
+
+
 def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
     """Build the standalone viewpoint result used by the UI."""
 
-    result = report.get("viewpoint_diversity", {})
+    raw_result = report.get("viewpoint_diversity", {})
+    result: Mapping[str, Any] = (
+        raw_result if isinstance(raw_result, Mapping) else {}
+    )
     label = result.get("label", "Unknown")
     styles = {
         "High": {"color": "#16a674", "tone": "positive"},
@@ -181,64 +199,61 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
         "Low": {"color": "#df5b5b", "tone": "negative"},
         "Unknown": {"color": "#6f7f7c", "tone": "neutral"},
     }
-    indicators = result.get("indicators", {})
-    tracking = result.get("object_tracking", {})
-    background = result.get("background_diagnostics", {})
+    raw_indicators = result.get("indicators", {})
+    raw_tracking = result.get("object_tracking", {})
+    raw_background = result.get("background_diagnostics", {})
+    raw_method = result.get("method", {})
+    raw_decision = result.get("decision_explanation", {})
+    indicators = raw_indicators if isinstance(raw_indicators, Mapping) else {}
+    tracking = raw_tracking if isinstance(raw_tracking, Mapping) else {}
+    background = raw_background if isinstance(raw_background, Mapping) else {}
+    method = raw_method if isinstance(raw_method, Mapping) else {}
+    decision = raw_decision if isinstance(raw_decision, Mapping) else {}
+    recommendations = result.get("recommendations", [])
+    warnings = result.get("warnings", [])
+    repeated_views = result.get("repeated_view_intervals", [])
+    evidence_available = bool(indicators)
+    parallax_fraction = indicators.get(
+        "temporally_separated_parallax_proxy_pair_fraction"
+    )
+    if parallax_fraction is None:
+        parallax_fraction = indicators.get("parallax_proxy_pair_fraction")
     return {
         "label": label,
         "summary": result.get("summary", "Viewpoint evidence is unavailable."),
         "style": styles.get(label, styles["Unknown"]),
-        "recommendations": list(result.get("recommendations", [])),
-        "warnings": list(result.get("warnings", [])),
-        "repeated_view_count": len(result.get("repeated_view_intervals", [])),
-        "intrinsics_used": bool(result.get("method", {}).get("intrinsics_used", False)),
-        "affects_overall_score": bool(
-            result.get("method", {}).get("affects_overall_score", False)
-        ),
-        "analysis_mode": result.get("method", {}).get(
-            "analysis_mode", "whole_frame"
-        ),
-        "primary_reason": result.get("decision_explanation", {}).get(
-            "primary_reason", ""
-        ),
-        "tracking_percent": round(
-            100.0 * float(tracking.get("tracked_sample_fraction", 0.0))
-        )
-        if tracking
-        else None,
-        "tracking_cycle_verified_percent": round(
-            100.0 * float(tracking.get("cycle_verified_step_fraction", 0.0))
-        )
-        if tracking
-        else None,
-        "background_dominated_percent": (
-            round(
-                100.0
-                * float(background["background_dominated_pair_fraction"])
-            )
-            if background.get("background_dominated_pair_fraction") is not None
+        "recommendations": list(recommendations)
+        if isinstance(recommendations, (list, tuple))
+        else [],
+        "warnings": list(warnings) if isinstance(warnings, (list, tuple)) else [],
+        "repeated_view_count": (
+            len(repeated_views)
+            if evidence_available
+            and "repeated_view_intervals" in result
+            and isinstance(repeated_views, (list, tuple))
             else None
         ),
-        "parallax_proxy_percent": round(
-            100.0
-            * float(
-                indicators.get(
-                    "temporally_separated_parallax_proxy_pair_fraction",
-                    indicators.get("parallax_proxy_pair_fraction", 0.0),
-                )
-            )
+        "intrinsics_used": bool(method.get("intrinsics_used", False)),
+        "affects_overall_score": bool(
+            method.get("affects_overall_score", False)
         ),
-        "substantial_change_percent": round(
-            100.0
-            * float(
-                indicators.get(
-                    "temporally_separated_substantial_change_fraction", 0.0
-                )
-            )
+        "analysis_mode": method.get("analysis_mode", "whole_frame"),
+        "primary_reason": decision.get("primary_reason", ""),
+        "tracking_percent": _optional_percentage(
+            tracking.get("tracked_sample_fraction")
         ),
-        "mixed_motion_percent": round(
-            100.0
-            * float(indicators.get("mixed_static_dynamic_pair_fraction", 0.0))
+        "tracking_cycle_verified_percent": _optional_percentage(
+            tracking.get("cycle_verified_step_fraction")
+        ),
+        "background_dominated_percent": _optional_percentage(
+            background.get("background_dominated_pair_fraction")
+        ),
+        "parallax_proxy_percent": _optional_percentage(parallax_fraction),
+        "substantial_change_percent": _optional_percentage(
+            indicators.get("temporally_separated_substantial_change_fraction")
+        ),
+        "mixed_motion_percent": _optional_percentage(
+            indicators.get("mixed_static_dynamic_pair_fraction")
         ),
     }
 
