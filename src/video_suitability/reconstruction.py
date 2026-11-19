@@ -515,6 +515,9 @@ def run_sparse_colmap(
     sequential_overlap: int = 10,
     retry_exhaustive: bool = False,
     use_gpu: bool = False,
+    max_image_size: Optional[int] = None,
+    max_num_features: Optional[int] = None,
+    num_threads: Optional[int] = None,
 ) -> Dict[str, Any]:
     """Run sparse COLMAP and return explicit status plus objective metrics.
 
@@ -525,6 +528,13 @@ def run_sparse_colmap(
 
     images = Path(images_dir).resolve()
     workspace = Path(workspace_dir).resolve()
+    for name, value in (
+        ("max_image_size", max_image_size),
+        ("max_num_features", max_num_features),
+        ("num_threads", num_threads),
+    ):
+        if value is not None and value <= 0:
+            raise ReconstructionError(f"{name} must be positive when provided")
     image_files = sorted(images.glob("*.jpg"))
     base: Dict[str, Any] = {
         "schema_version": "1.0",
@@ -536,6 +546,9 @@ def run_sparse_colmap(
         "sequential_overlap": sequential_overlap,
         "retry_exhaustive": retry_exhaustive,
         "gpu_requested": bool(use_gpu),
+        "max_image_size": max_image_size,
+        "max_num_features": max_num_features,
+        "num_threads": num_threads,
         "selected_device": "unresolved",
         "colmap_executable_requested": colmap_executable,
         "commands": [],
@@ -568,6 +581,7 @@ def run_sparse_colmap(
 
     feature_help = _help_text(executable, "feature_extractor")
     matching_help = _help_text(executable, "sequential_matcher")
+    mapper_help = _help_text(executable, "mapper")
     feature_gpu_flag = _supported_flag(
         feature_help, ["--FeatureExtraction.use_gpu", "--SiftExtraction.use_gpu"]
     )
@@ -592,6 +606,24 @@ def run_sparse_colmap(
     ]
     if feature_gpu_flag:
         feature_command.extend([feature_gpu_flag, "1" if gpu_enabled else "0"])
+    if max_image_size is not None:
+        flag = _supported_flag(
+            feature_help,
+            ["--FeatureExtraction.max_image_size", "--SiftExtraction.max_image_size"],
+        )
+        if flag:
+            feature_command.extend([flag, str(max_image_size)])
+    if max_num_features is not None:
+        flag = _supported_flag(feature_help, ["--SiftExtraction.max_num_features"])
+        if flag:
+            feature_command.extend([flag, str(max_num_features)])
+    if num_threads is not None:
+        flag = _supported_flag(
+            feature_help,
+            ["--FeatureExtraction.num_threads", "--SiftExtraction.num_threads"],
+        )
+        if flag:
+            feature_command.extend([flag, str(num_threads)])
     sequential_command = [
         executable,
         "sequential_matcher",
@@ -602,6 +634,13 @@ def run_sparse_colmap(
     ]
     if matching_gpu_flag:
         sequential_command.extend([matching_gpu_flag, "1" if gpu_enabled else "0"])
+    if num_threads is not None:
+        flag = _supported_flag(
+            matching_help,
+            ["--FeatureMatching.num_threads", "--SiftMatching.num_threads"],
+        )
+        if flag:
+            sequential_command.extend([flag, str(num_threads)])
     mapper_command = [
         executable,
         "mapper",
@@ -612,6 +651,8 @@ def run_sparse_colmap(
         "--output_path",
         str(sparse_sequential),
     ]
+    if num_threads is not None and "--Mapper.num_threads" in mapper_help:
+        mapper_command.extend(["--Mapper.num_threads", str(num_threads)])
 
     started = time.perf_counter()
     results: List[CommandResult] = []

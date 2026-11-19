@@ -5,10 +5,12 @@ import numpy as np
 
 from video_suitability.ml.historical_registration_features import (
     HISTORICAL_FEATURE_NAMES,
+    LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
     extract_historical_features_from_image_directory,
     extract_historical_features_from_uploaded_video,
     extract_historical_features_from_video_probe,
     prepare_video_for_historical_probe,
+    prepare_video_to_historical_60_jpegs,
 )
 
 
@@ -103,7 +105,7 @@ def test_video_adapter_remains_probe_only():
 def test_live_adapter_is_exactly_equivalent_to_materialized_adapter_jpegs(tmp_path):
     video = ROOT / "data/samples/good_orbit.mp4"
     prepared = tmp_path / "prepared"
-    prepare_video_for_historical_probe(video, prepared)
+    preparation = prepare_video_to_historical_60_jpegs(video, prepared)
     materialized, _ = extract_historical_features_from_image_directory(prepared)
     optimized, diagnostics = extract_historical_features_from_uploaded_video(video)
 
@@ -116,6 +118,15 @@ def test_live_adapter_is_exactly_equivalent_to_materialized_adapter_jpegs(tmp_pa
     )
     assert diagnostics["requested_source_positions"] == diagnostics[
         "decoded_source_positions"
+    ]
+    assert preparation["prepared_frame_count"] == 60
+    assert len(preparation["prepared_images"]) == 60
+    assert preparation["decoded_positions"] == preparation["requested_positions"]
+    assert preparation["adapter_contract_sha256"] == (
+        "eac0ba4e28938adaa03a866c77ed7f2393fe5f45985a345b8f82ac4ac25dd9ef"
+    )
+    assert LIVE_VIDEO_ADAPTER_CONTRACT_SHA256 == preparation[
+        "adapter_contract_sha256"
     ]
 
 

@@ -21,7 +21,9 @@ import numpy as np
 from .historical_registration_features import (
     HISTORICAL_EXTRACTOR_SOURCE_SHA256,
     HISTORICAL_FEATURE_NAMES,
+    LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
     LIVE_VIDEO_ADAPTER_POLICY,
+    extract_historical_features_from_image_directory,
     extract_historical_features_from_uploaded_video,
 )
 
@@ -198,32 +200,91 @@ def predict_experimental_ridge_registration(
         features, adapter = extract_historical_features_from_uploaded_video(video_path)
         if tuple(features) != HISTORICAL_FEATURE_NAMES:
             raise ExperimentalRidgeError("Live feature order changed")
-        ordered = [[float(features[name]) for name in HISTORICAL_FEATURE_NAMES]]
-        raw = float(_predict_array(model, ordered)[0])
-        if not np.isfinite(raw):
-            raise ExperimentalRidgeError("Ridge produced a non-finite prediction")
-        clipped = float(np.clip(raw, 0.0, 100.0))
-        base.update(
+        _attach_available_prediction(base, model, integrity, features, adapter)
+    except Exception as exc:
+        base["reason"] = str(exc) or exc.__class__.__name__
+    base["performance_profile"] = {
+        "wall_seconds": round(time.perf_counter() - wall_started, 6),
+        "cpu_seconds": round(time.process_time() - cpu_started, 6),
+    }
+    return base
+
+
+def _attach_available_prediction(
+    base: Dict[str, Any],
+    model: Any,
+    integrity: Mapping[str, Any],
+    features: Mapping[str, float],
+    adapter: Mapping[str, Any],
+) -> None:
+    if tuple(features) != HISTORICAL_FEATURE_NAMES:
+        raise ExperimentalRidgeError("Historical feature order changed")
+    ordered = [[float(features[name]) for name in HISTORICAL_FEATURE_NAMES]]
+    raw = float(_predict_array(model, ordered)[0])
+    if not np.isfinite(raw):
+        raise ExperimentalRidgeError("Ridge produced a non-finite prediction")
+    clipped = float(np.clip(raw, 0.0, 100.0))
+    base.update(
+        {
+            "status": "available",
+            "trained_model_used": True,
+            "predicted_registration_percentage": round(clipped, 6),
+            "raw_prediction_percentage": round(raw, 6),
+            "prediction_was_clipped": bool(clipped != raw),
+            "feature_names_in_order": list(HISTORICAL_FEATURE_NAMES),
+            "features": {
+                name: float(features[name]) for name in HISTORICAL_FEATURE_NAMES
+            },
+            "artifact_integrity": dict(integrity),
+            "adapter_diagnostics": dict(adapter),
+            "validation_warning": (
+                "This uploaded-video adapter has not been independently validated and "
+                "is not proven equivalent to the historical CO3D training-input generation."
+            ),
+            "interpretation_warning": (
+                "Predicted COLMAP image registration is not a guarantee of successful "
+                "3D reconstruction or complete object coverage."
+            ),
+        }
+    )
+
+
+def predict_experimental_ridge_from_prepared_images(
+    image_directory: Path,
+    artifact_directory: Optional[Path] = None,
+    model_bytes: Optional[bytes] = None,
+) -> Dict[str, Any]:
+    """Predict from the exact 60 JPEGs also supplied to offline COLMAP."""
+
+    wall_started = time.perf_counter()
+    cpu_started = time.process_time()
+    base: Dict[str, Any] = {
+        "status": "unavailable",
+        "trained_model_used": False,
+        "colmap_run": False,
+        "affects_suitability_score": False,
+        "affects_viewpoint_diversity": False,
+        "experimental": True,
+        "independently_validated": False,
+        "adapter_policy": LIVE_VIDEO_ADAPTER_POLICY,
+    }
+    try:
+        model, integrity = load_experimental_ridge(
+            artifact_directory=artifact_directory, model_bytes=model_bytes
+        )
+        features, diagnostics = extract_historical_features_from_image_directory(
+            image_directory
+        )
+        diagnostics.update(
             {
-                "status": "available",
-                "trained_model_used": True,
-                "predicted_registration_percentage": round(clipped, 6),
-                "raw_prediction_percentage": round(raw, 6),
-                "prediction_was_clipped": bool(clipped != raw),
-                "feature_names_in_order": list(HISTORICAL_FEATURE_NAMES),
-                "features": {name: float(features[name]) for name in HISTORICAL_FEATURE_NAMES},
-                "artifact_integrity": integrity,
-                "adapter_diagnostics": adapter,
-                "validation_warning": (
-                    "This uploaded-video adapter has not been independently validated and "
-                    "is not proven equivalent to the historical CO3D training-input generation."
+                "adapter_status": (
+                    "frozen_live_policy_training_input_equivalence_not_established"
                 ),
-                "interpretation_warning": (
-                    "Predicted COLMAP image registration is not a guarantee of successful "
-                    "3D reconstruction or complete object coverage."
-                ),
+                "adapter_contract_sha256": LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
+                "shared_with_colmap": True,
             }
         )
+        _attach_available_prediction(base, model, integrity, features, diagnostics)
     except Exception as exc:
         base["reason"] = str(exc) or exc.__class__.__name__
     base["performance_profile"] = {

@@ -28,6 +28,7 @@ models/*
 !models/.gitkeep
 evaluation/ml/artifacts/
 evaluation/ml/embedding_cache/
+evaluation/ml/independent_ridge_validation/runs/
 data/ml/*.jsonl
 
 # Local real-video viewpoint diagnostics can reveal source imagery. Keep the

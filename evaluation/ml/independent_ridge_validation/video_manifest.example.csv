@@ -1,0 +1,4 @@
+video_id,role,video_path
+good_orbit,good_orbit,/content/validation_inputs/good_orbit.mp4
+front_only,front_only,/content/validation_inputs/front_only.mp4
+waving_control,animated_object_negative_control,/content/validation_inputs/waving_control.mp4

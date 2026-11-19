@@ -15,6 +15,11 @@ and saved-prediction parity checks. Its uploaded-video adapter is a new inferenc
 policy and is not proven equivalent to the CO3D training-input generator, so the UI
 labels every output unvalidated and never mixes it into either analyzer.
 
+A minimal offline independent diagnostic now prepares the same frozen 60 JPEGs for
+Ridge and CPU COLMAP, separates completed mapper failures from infrastructure
+failures, and calculates MAE only from valid ground truth. See
+[the independent validation runbook](docs/independent_ridge_colmap_validation.md).
+
 The final-label preparation path is also available without training. It merges
 multiple COLMAP label batches, verifies the exact 60-image inputs and provenance,
 extracts fresh production-compatible features, creates physical-source grouped CV

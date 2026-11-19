@@ -10,6 +10,8 @@ has not been established.
 from __future__ import annotations
 
 import io
+import hashlib
+import json
 import tempfile
 import time
 from pathlib import Path
@@ -36,6 +38,24 @@ HISTORICAL_EXTRACTOR_SOURCE_SHA256 = (
 HISTORICAL_INPUT_FRAME_COUNT = 60
 HISTORICAL_FEATURE_SAMPLE_COUNT = 12
 LIVE_VIDEO_ADAPTER_POLICY = "uploaded_video_uniform60_pillow_jpeg90_v1"
+LIVE_PREPARE_MAX_EDGE = 800
+LIVE_PREPARE_JPEG_QUALITY = 90
+LIVE_VIDEO_ADAPTER_CONTRACT = {
+    "schema_version": "uploaded_video_60_jpeg_adapter/1.0",
+    "policy": LIVE_VIDEO_ADAPTER_POLICY,
+    "source_sampling": "np.linspace(0, frame_count - 1, 60, dtype=int)",
+    "prepared_frame_count": HISTORICAL_INPUT_FRAME_COUNT,
+    "ordering": "ascending source position; filenames 0000.jpg through 0059.jpg",
+    "decode_color": "OpenCV BGR then cv2.COLOR_BGR2RGB",
+    "image_mode": "Pillow RGB",
+    "resize": "proportional max-edge 800 using Pillow LANCZOS; no upscale",
+    "encoding": "Pillow JPEG quality 90 with library defaults",
+}
+LIVE_VIDEO_ADAPTER_CONTRACT_SHA256 = hashlib.sha256(
+    json.dumps(
+        LIVE_VIDEO_ADAPTER_CONTRACT, sort_keys=True, separators=(",", ":")
+    ).encode("utf-8")
+).hexdigest()
 
 
 def _cv2():
@@ -44,6 +64,36 @@ def _cv2():
     except ImportError as exc:  # pragma: no cover
         raise RuntimeError("OpenCV is required for historical features") from exc
     return cv2
+
+
+def _source_frame_positions(frame_count: int) -> List[int]:
+    if frame_count < HISTORICAL_INPUT_FRAME_COUNT:
+        raise VideoValidationError(
+            "Experimental Ridge adapter requires a reliable frame count of at least 60"
+        )
+    positions = np.linspace(
+        0, frame_count - 1, HISTORICAL_INPUT_FRAME_COUNT, dtype=int
+    ).tolist()
+    if len(set(positions)) != HISTORICAL_INPUT_FRAME_COUNT:
+        raise VideoValidationError("Video does not yield 60 unique adapter positions")
+    return positions
+
+
+def _frame_to_frozen_jpeg(frame: np.ndarray) -> bytes:
+    cv2 = _cv2()
+    try:
+        from PIL import Image
+    except ImportError as exc:  # pragma: no cover
+        raise RuntimeError("Pillow is required for live historical features") from exc
+    rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+    image = Image.fromarray(rgb).convert("RGB")
+    factor = min(1.0, LIVE_PREPARE_MAX_EDGE / max(image.size))
+    size = tuple(max(1, round(side * factor)) for side in image.size)
+    if size != image.size:
+        image = image.resize(size, Image.Resampling.LANCZOS)
+    encoded = io.BytesIO()
+    image.save(encoded, "JPEG", quality=LIVE_PREPARE_JPEG_QUALITY)
+    return encoded.getvalue()
 
 
 def _extract_historical_features_from_bgr_frames(
@@ -153,29 +203,23 @@ def extract_historical_features_from_uploaded_video(
     """
 
     cv2 = _cv2()
-    try:
-        from PIL import Image
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Pillow is required for live historical features") from exc
-
     source = Path(video_path).expanduser().resolve()
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():
         capture.release()
         raise VideoValidationError(f"Could not open video: {source}")
     raw_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    if not np.isfinite(raw_count) or raw_count < HISTORICAL_INPUT_FRAME_COUNT:
+    if not np.isfinite(raw_count):
         capture.release()
         raise VideoValidationError(
             "Experimental Ridge adapter requires a reliable frame count of at least 60"
         )
     frame_count = int(round(raw_count))
-    logical_positions = np.linspace(
-        0, frame_count - 1, HISTORICAL_INPUT_FRAME_COUNT, dtype=int
-    ).tolist()
-    if len(set(logical_positions)) != HISTORICAL_INPUT_FRAME_COUNT:
+    try:
+        logical_positions = _source_frame_positions(frame_count)
+    except Exception:
         capture.release()
-        raise VideoValidationError("Video does not yield 60 unique adapter positions")
+        raise
     sampled_slots = np.linspace(
         0, HISTORICAL_INPUT_FRAME_COUNT - 1, HISTORICAL_FEATURE_SAMPLE_COUNT, dtype=int
     ).tolist()
@@ -196,15 +240,7 @@ def extract_historical_features_from_uploaded_video(
                 raise VideoValidationError(
                     f"Codec seek returned frame {actual}, expected {position}"
                 )
-            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image = Image.fromarray(rgb).convert("RGB")
-            factor = min(1.0, 800 / max(image.size))
-            size = tuple(max(1, round(side * factor)) for side in image.size)
-            if size != image.size:
-                image = image.resize(size, Image.Resampling.LANCZOS)
-            encoded = io.BytesIO()
-            image.save(encoded, "JPEG", quality=90)
-            jpeg_array = np.frombuffer(encoded.getvalue(), dtype=np.uint8)
+            jpeg_array = np.frombuffer(_frame_to_frozen_jpeg(frame), dtype=np.uint8)
             prepared = cv2.imdecode(jpeg_array, cv2.IMREAD_COLOR)
             if prepared is None:
                 raise VideoValidationError(f"Could not decode prepared frame {position}")
@@ -241,6 +277,8 @@ def extract_historical_features_from_uploaded_video(
         "image_ordering": "ascending source frame position via logical names 0000.jpg..0059.jpg",
         "resized_gray_shapes": resized_shapes,
         "source_implementation_sha256": HISTORICAL_EXTRACTOR_SOURCE_SHA256,
+        "adapter_contract": dict(LIVE_VIDEO_ADAPTER_CONTRACT),
+        "adapter_contract_sha256": LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
         "decode_and_prepare_wall_seconds": round(decode_wall, 6),
         "decode_and_prepare_cpu_seconds": round(decode_cpu, 6),
         "feature_wall_seconds": round(time.perf_counter() - feature_wall_started, 6),
@@ -248,19 +286,16 @@ def extract_historical_features_from_uploaded_video(
     }
 
 
-def prepare_video_for_historical_probe(video_path: Path, output_directory: Path) -> Dict[str, Any]:
-    """Create an analogous 60-JPEG input solely for compatibility measurement.
+def prepare_video_to_historical_60_jpegs(
+    video_path: Path, output_directory: Path
+) -> Dict[str, Any]:
+    """Materialize the frozen uploaded-video adapter as exactly 60 ordered JPEGs.
 
-    This is not claimed to be a recovered historical video adapter. Historical
-    training began with ordered CO3D source JPEGs, while this function begins with
-    codec-decoded video frames.
+    These are the immutable inputs shared by the independent Ridge/COLMAP pilot.
+    They are not claimed to reproduce the historical CO3D input generator.
     """
 
     cv2 = _cv2()
-    try:
-        from PIL import Image
-    except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Pillow is required for the historical video probe") from exc
     source = Path(video_path).expanduser().resolve()
     root = Path(output_directory).expanduser().resolve()
     root.mkdir(parents=True, exist_ok=False)
@@ -269,49 +304,67 @@ def prepare_video_for_historical_probe(video_path: Path, output_directory: Path)
         capture.release()
         raise VideoValidationError(f"Could not open video: {source}")
     raw_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
-    if not np.isfinite(raw_count) or raw_count < HISTORICAL_INPUT_FRAME_COUNT:
+    if not np.isfinite(raw_count):
         capture.release()
         raise VideoValidationError(
-            "Historical probe requires a reliable frame count of at least 60"
+            "Historical adapter requires a reliable frame count of at least 60"
         )
     frame_count = int(round(raw_count))
-    positions = np.linspace(
-        0, frame_count - 1, HISTORICAL_INPUT_FRAME_COUNT, dtype=int
-    ).tolist()
-    if len(set(positions)) != HISTORICAL_INPUT_FRAME_COUNT:
+    try:
+        positions = _source_frame_positions(frame_count)
+    except Exception:
         capture.release()
-        raise VideoValidationError("Video does not yield 60 unique probe positions")
+        raise
     actual_positions = []
-    for sequence_number, position in enumerate(positions):
-        capture.set(cv2.CAP_PROP_POS_FRAMES, float(position))
-        ok, frame = capture.read()
-        if not ok or frame is None:
-            capture.release()
-            raise VideoValidationError(f"Could not decode probe frame {position}")
-        reported_next = capture.get(cv2.CAP_PROP_POS_FRAMES)
-        actual = int(round(reported_next)) - 1 if reported_next > 0 else position
-        if actual != position:
-            capture.release()
-            raise VideoValidationError(
-                f"Codec seek returned frame {actual}, expected {position}"
+    prepared_images = []
+    try:
+        for sequence_number, position in enumerate(positions):
+            capture.set(cv2.CAP_PROP_POS_FRAMES, float(position))
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                raise VideoValidationError(f"Could not decode adapter frame {position}")
+            reported_next = capture.get(cv2.CAP_PROP_POS_FRAMES)
+            actual = int(round(reported_next)) - 1 if reported_next > 0 else position
+            if actual != position:
+                raise VideoValidationError(
+                    f"Codec seek returned frame {actual}, expected {position}"
+                )
+            payload = _frame_to_frozen_jpeg(frame)
+            filename = f"{sequence_number:04d}.jpg"
+            (root / filename).write_bytes(payload)
+            actual_positions.append(actual)
+            prepared_images.append(
+                {
+                    "filename": filename,
+                    "source_frame_position": actual,
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "size_bytes": len(payload),
+                }
             )
-        rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-        image = Image.fromarray(rgb).convert("RGB")
-        factor = min(1.0, 800 / max(image.size))
-        size = tuple(max(1, round(side * factor)) for side in image.size)
-        if size != image.size:
-            image = image.resize(size, Image.Resampling.LANCZOS)
-        image.save(root / f"{sequence_number:04d}.jpg", "JPEG", quality=90)
-        actual_positions.append(actual)
-    capture.release()
+    finally:
+        capture.release()
     return {
-        "adapter_status": "probe_only_not_historically_verified",
+        "adapter_status": "frozen_live_policy_training_input_equivalence_not_established",
+        "adapter_policy": LIVE_VIDEO_ADAPTER_POLICY,
+        "adapter_contract": dict(LIVE_VIDEO_ADAPTER_CONTRACT),
+        "adapter_contract_sha256": LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
         "source_frame_count": frame_count,
         "requested_positions": positions,
         "decoded_positions": actual_positions,
         "prepared_frame_count": HISTORICAL_INPUT_FRAME_COUNT,
         "preparation": "decoded BGR -> RGB, max-edge 800 LANCZOS, JPEG quality 90",
+        "prepared_images": prepared_images,
     }
+
+
+def prepare_video_for_historical_probe(
+    video_path: Path, output_directory: Path
+) -> Dict[str, Any]:
+    """Backward-compatible name for the now-frozen 60-JPEG adapter."""
+
+    result = prepare_video_to_historical_60_jpegs(video_path, output_directory)
+    result["adapter_status"] = "probe_only_not_historically_verified"
+    return result
 
 
 def extract_historical_features_from_video_probe(

@@ -1815,3 +1815,33 @@ The complete suite reported `106 passed, 2 skipped in 128.71s`; both skips are t
 unchanged optional PyTorch tests. Deployment preflight passed, Streamlit started on
 port 8504, and `/_stcore/health` returned `ok`.
 
+## Minimal independent Ridge/COLMAP validation workflow — implemented (2026-11-19)
+
+Added a reusable three-video offline runner that materializes the frozen live
+adapter's exact 60 ordered JPEGs once and feeds the same files to the historical
+Ridge extractor and CPU COLMAP. The adapter contract is pinned as
+`eac0ba4e28938adaa03a866c77ed7f2393fe5f45985a345b8f82ac4ac25dd9ef`;
+each preparation manifest records source positions and image hashes.
+
+The COLMAP pilot matches the Batch C/R1 CPU settings where available: max image size
+800, max 2048 SIFT features, two threads, one camera, sequential overlap 6 and no
+exhaustive retry. It explicitly freezes `SIMPLE_RADIAL`; the historical notebooks
+relied on their installed default. Uploaded-video JPEG inputs and the current COLMAP
+build are also documented differences from historical CO3D labeling.
+
+Only exported sparse-model counts and a completed zero-return-code mapper producing
+no model become ground truth. Missing infrastructure, command errors, mapper crashes,
+interruptions and export failures remain target-less and are excluded from MAE.
+The CSV/report generator was tested with successful, completed-mapper-failure and
+infrastructure-failure cases.
+
+COLMAP is not installed locally. A real adapter/Ridge smoke run on `good_orbit.mp4`
+prepared 60 hashed images, predicted 80.468357%, classified COLMAP as
+`infrastructure_failure`, left actual registration/error blank, and correctly did
+not calculate MAE. Total smoke runtime was 45.749002 s, including 44.109144 s for
+full 60-frame materialization. This is a workflow smoke test, not independent ground
+truth. The Colab CPU runbook is in
+`docs/independent_ridge_colmap_validation.md`.
+The final full suite reported `112 passed, 2 skipped in 112.05s`; the two skips are
+the unchanged optional PyTorch tests. Compileall and `git diff --check` exited 0.
+
