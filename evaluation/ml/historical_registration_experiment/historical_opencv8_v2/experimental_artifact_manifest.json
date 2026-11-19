@@ -1,0 +1,28 @@
+{
+  "activation_allowed": false,
+  "experimental": true,
+  "files_sha256": {
+    "experimental_model.joblib": "46112ef74ffe29896f892baf6dd037200271d14aa3da5f4f13901eac1af988c6",
+    "experimental_prediction_parity.csv": "7ae35b717ac3060bba6b6158174a6d7947d6c20ef1d1dfdbfaa7a58167b28b4b",
+    "grouped_cv_fold_metrics.csv": "fc4d2fb354ddef14fc7cb55b7973d00c518d75a83169113f4763bf80202aa371",
+    "grouped_cv_predictions.csv": "9f15bdda7dcee67eec484ecdb1ab4c29de75c37e1423fc9ac07fa8fd0ac09e82",
+    "grouped_cv_splits.json": "89a0d095e16859f46b73dca8648bff2bbcbf5fffd617690621987ad278e7ddf0",
+    "grouped_cv_summary.csv": "1cf8485013b4ec44f034937aac85ffcff0533e4985098390d781ec1b3d79e0a0",
+    "historical_feature_definition.json": "492b28f1d5973012d56190d7ec7a6759cf747f4145e8fc9bb854fba04fa9282e",
+    "input_sources.json": "494fe398c31cdc072b8df0d727a5b41db7aaba2589301dbe8a8102b73de173f7",
+    "join_report.json": "294199279ebaafd4915a5a339504e6691de7a91a86f23ba636f3255f48efbea1",
+    "model_selection.json": "0f4064b2b68844bd80f4ae667dd5fce8a56ba4bf5766233466fb67f4a306cbb5",
+    "training_records.csv": "905b1a4ae3ffb838bf7b1d87f1e2d06cb862ea793d60978faf8034cd5905bee6"
+  },
+  "independent_holdout_evaluated": false,
+  "offline_only": true,
+  "prediction_postprocessing": "clip_0_100",
+  "production_feature_compatible": false,
+  "python_version": "3.9.6",
+  "reason": "Historical eight-feature preprocessing differs from the deployed extractor",
+  "schema_version": "historical_registration_experimental_artifact/1.0",
+  "selected_model": "ridge",
+  "sklearn_version": "1.6.1",
+  "source_groups": 49,
+  "training_rows": 647
+}

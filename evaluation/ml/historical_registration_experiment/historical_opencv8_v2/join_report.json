@@ -1,0 +1,25 @@
+{
+  "accepted_training_rows": 647,
+  "exact_heldout_source_ids_available": false,
+  "exclusion_counts_sequential": {
+    "feature_label_target_mismatch": 0,
+    "mapper_failure_interruption_or_invalid_label": 28,
+    "missing_numeric_target": 0,
+    "missing_or_ambiguous_feature_join": 0,
+    "non_finite_feature": 0,
+    "non_numeric_feature_or_label_target": 0,
+    "not_sparse_model_created": 0,
+    "reserved_heldout_category": 0,
+    "source_group_mismatch": 0
+  },
+  "heldout_categories_excluded": [
+    "bicycle",
+    "bowl",
+    "cake",
+    "plant",
+    "toyplane"
+  ],
+  "independent_holdout_evaluation_allowed": false,
+  "independent_source_groups": 49,
+  "input_unique_experiments": 675
+}

@@ -53,4 +53,6 @@ work/
 *.pt
 *.pth
 *.onnx
+*.joblib
+*.pkl
 

@@ -1,0 +1,38 @@
+{
+  "feature_names_in_order": [
+    "brightness_mean",
+    "brightness_variation",
+    "contrast_mean",
+    "sharpness_mean",
+    "sharpness_variation",
+    "dark_fraction",
+    "orb_features_mean",
+    "orb_matches_mean"
+  ],
+  "features": {
+    "brightness_mean": "mean of 12 per-frame gray means",
+    "brightness_variation": "std of 12 per-frame gray means",
+    "contrast_mean": "mean of 12 per-frame gray standard deviations",
+    "dark_fraction": "mean per-frame fraction(gray < 32)",
+    "orb_features_mean": "mean ORB keypoint count",
+    "orb_matches_mean": "mean consecutive Lowe-ratio good-match count",
+    "sharpness_mean": "mean log1p(var(Laplacian(gray,CV_64F)))",
+    "sharpness_variation": "std log1p(var(Laplacian(gray,CV_64F)))"
+  },
+  "frame_input": "60 prepared JPEG images sorted by filename",
+  "frame_sampling": "np.linspace(0,59,12,dtype=int)",
+  "grayscale": "cv2.COLOR_BGR2GRAY",
+  "implementation_source_sha256": "ac727c93fc14ffec7dd8079fb53f876f8a8b71560237ff9e319692d4288a2be0",
+  "matching": "BFMatcher(NORM_HAMMING).knnMatch(k=2), Lowe ratio 0.75",
+  "orb": "cv2.ORB_create(nfeatures=400), remaining parameters/OpenCV runtime defaults",
+  "production_extractor_compatible": false,
+  "production_mismatches": [
+    "12 sampled prepared frames versus production 16",
+    "max-edge-480 default resize versus fixed 320x240 INTER_AREA",
+    "ORB nfeatures=400/defaults versus production nfeatures=1000/explicit parameters and RNG seed",
+    "historical brightness/sharpness variation and dark fraction are absent in production",
+    "production frame difference, match ratio, and homography-RANSAC inlier ratio are absent historically"
+  ],
+  "resize": "if max edge >480, proportional cv2.resize with default interpolation",
+  "schema_version": "historical_registration_opencv8/1.0"
+}

@@ -37,6 +37,11 @@ def main() -> int:
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--object-bbox")
     parser.add_argument("--diagnostic-frames", type=int, default=6)
+    parser.add_argument(
+        "--viewpoint",
+        action="store_true",
+        help="Also run the optional experimental viewpoint-diversity module",
+    )
     args = parser.parse_args()
     if args.runs < 1:
         raise SystemExit("--runs must be positive")
@@ -49,6 +54,7 @@ def main() -> int:
             source_bytes,
             args.video.name,
             object_bbox=bbox,
+            include_viewpoint_diversity=args.viewpoint,
         )
         diagnostics_wall_started = time.perf_counter()
         diagnostics_cpu_started = time.process_time()
@@ -64,6 +70,7 @@ def main() -> int:
             "run": index + 1,
             "filename": args.video.name,
             "object_bbox": bbox,
+            "experimental_viewpoint_enabled": args.viewpoint,
             "viewpoint_label": result["report"]["viewpoint_diversity"]["label"],
             "suitability_score": result["report"]["overall_score"],
             "upload_path": result["upload_performance"],

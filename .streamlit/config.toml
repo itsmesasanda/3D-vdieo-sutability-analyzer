@@ -1,0 +1,11 @@
+[server]
+headless = true
+maxUploadSize = 150
+maxMessageSize = 160
+
+[client]
+showErrorDetails = false
+toolbarMode = "minimal"
+
+[browser]
+gatherUsageStats = false

@@ -1,0 +1,186 @@
+{
+  "activation_allowed": false,
+  "experimental": true,
+  "feature_sources": [
+    {
+      "batch_id": "Original",
+      "feature_file": "/Users/sasanda/Downloads/co3d_colmap_two_seq_pilot/labeling_60f_v1/random_forest_experiment/features.csv",
+      "feature_sha256": "bb04ab17b2b5187d48bc1821914fb48be406b5a304234940d9f29e79f63fae4a",
+      "label_file": "/Users/sasanda/Downloads/co3d_colmap_two_seq_pilot/labeling_60f_v1/labels_60f_combined.csv",
+      "label_sha256": "01ced9be45f8b59ca549c31e01e9019664ffb4f1c06f316318013b109088ed02",
+      "row_count": 45
+    },
+    {
+      "batch_id": "A",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (1).csv",
+      "feature_sha256": "e7b929998dbfe9f2d2025942cd4548a464569fb9ffa67c269d48e7637ef223f0",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (1).csv",
+      "label_sha256": "8edc6c217399c0d477e7403c56fe3fa73ff8f98fb35f830f302c710a61ddcfd2",
+      "row_count": 51
+    },
+    {
+      "batch_id": "B",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (2).csv",
+      "feature_sha256": "f9da3c1290bd4e8d388eb3d32346129d5232f63261f27b3ad29e6d2f2380b73d",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (2).csv",
+      "label_sha256": "bb8a395df48fdf58ac2ccfdf6b307dc789c9befe707fd0cd385ab55d8e3bd62c",
+      "row_count": 51
+    },
+    {
+      "batch_id": "C",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50-2.csv",
+      "feature_sha256": "91aa31bd9f66a1b8f2635e0052d9813bf65989400f124efe1d43c0b07115167a",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50-2.csv",
+      "label_sha256": "3eec07db517ab4dcf570c2e918e16dc572501917ec7b7ee79928687c05ffed77",
+      "row_count": 52
+    },
+    {
+      "batch_id": "D",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (8).csv",
+      "feature_sha256": "c66dffe8ca668c1d116384c4102eb031661c359050e4c79794c749c9922e0c85",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (8).csv",
+      "label_sha256": "f7e19cee222918b7646fbdb132d8782904c9d339602ab7206a28669377a04d22",
+      "row_count": 52
+    },
+    {
+      "batch_id": "E",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (7).csv",
+      "feature_sha256": "e6ec783e20fcdfaf741933eaf433464608130f15124f7a9b0961136527ef0a50",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (7).csv",
+      "label_sha256": "847207e9bf96509e0bdad69f5822c890ed0dbf4801a9e1bca6792ae34e1c7903",
+      "row_count": 52
+    },
+    {
+      "batch_id": "F",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (6).csv",
+      "feature_sha256": "14845dcfc7326daf27dcf19d89373c2bee57ee53be07d36a11fc1a956c7b9064",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (6).csv",
+      "label_sha256": "9d9650549281c0aec5a0425d5debb7d200275d094110cdf78a7ec93e48fe54a5",
+      "row_count": 52
+    },
+    {
+      "batch_id": "R1",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50 (5).csv",
+      "feature_sha256": "2a25bd2df2d44720359d98e6af0ca3a4968acab49406090777b79fa3f9734d5f",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50 (5).csv",
+      "label_sha256": "1ad15a48a1b80a8fc79f8e238a3f073d82970a3100ce34a4ebb9e09d82faa5db",
+      "row_count": 80
+    },
+    {
+      "batch_id": "R2",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50.csv",
+      "feature_sha256": "5e7f4a5ad5ef865013a17b6f4efe2a13c6c799e8dbd8b7e7f1e922a1e9238f84",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50.csv",
+      "label_sha256": "b431a1450d8b84ec77ae01426692326a72e7726b782d413c4677df5e1e2b8c83",
+      "row_count": 144
+    },
+    {
+      "batch_id": "R3",
+      "feature_file": "/Users/sasanda/Downloads/csv files/new_features_50-4.csv",
+      "feature_sha256": "75d80118b3143322d351df50ff8c5127b8f3bd27710a73562075c3b487afcad9",
+      "label_file": "/Users/sasanda/Downloads/csv files/new_labels_50-4.csv",
+      "label_sha256": "339f886e4f0063af75b59a7ba8bb98863001f9379377333d53ed1a63101b8bab",
+      "row_count": 96
+    }
+  ],
+  "files_sha256": {
+    "experimental_model.joblib": "46112ef74ffe29896f892baf6dd037200271d14aa3da5f4f13901eac1af988c6",
+    "experimental_prediction_parity.csv": "7ae35b717ac3060bba6b6158174a6d7947d6c20ef1d1dfdbfaa7a58167b28b4b",
+    "grouped_cv_fold_metrics.csv": "fc4d2fb354ddef14fc7cb55b7973d00c518d75a83169113f4763bf80202aa371",
+    "grouped_cv_predictions.csv": "9f15bdda7dcee67eec484ecdb1ab4c29de75c37e1423fc9ac07fa8fd0ac09e82",
+    "grouped_cv_splits.json": "89a0d095e16859f46b73dca8648bff2bbcbf5fffd617690621987ad278e7ddf0",
+    "grouped_cv_summary.csv": "1cf8485013b4ec44f034937aac85ffcff0533e4985098390d781ec1b3d79e0a0",
+    "historical_feature_definition.json": "492b28f1d5973012d56190d7ec7a6759cf747f4145e8fc9bb854fba04fa9282e",
+    "input_sources.json": "494fe398c31cdc072b8df0d727a5b41db7aaba2589301dbe8a8102b73de173f7",
+    "join_report.json": "294199279ebaafd4915a5a339504e6691de7a91a86f23ba636f3255f48efbea1",
+    "model_selection.json": "0f4064b2b68844bd80f4ae667dd5fce8a56ba4bf5766233466fb67f4a306cbb5",
+    "training_records.csv": "905b1a4ae3ffb838bf7b1d87f1e2d06cb862ea793d60978faf8034cd5905bee6"
+  },
+  "grouped_cv": {
+    "independent_holdout_evaluated": false,
+    "models": [
+      {
+        "mae": 19.624945246218132,
+        "model": "ridge",
+        "prediction_max": 100.0,
+        "prediction_mean": 47.98411779551534,
+        "prediction_min": 0.0,
+        "raw_out_of_range_count": 19,
+        "rmse": 27.02118367421536
+      },
+      {
+        "mae": 20.05994497221924,
+        "model": "random_forest",
+        "prediction_max": 100.0,
+        "prediction_mean": 46.459973531946524,
+        "prediction_min": 3.8619548571428344,
+        "raw_out_of_range_count": 0,
+        "rmse": 27.3580587069067
+      },
+      {
+        "mae": 21.134048977482678,
+        "model": "gradient_boosting",
+        "prediction_max": 100.0,
+        "prediction_mean": 46.58411268306035,
+        "prediction_min": 2.365059671127464,
+        "raw_out_of_range_count": 12,
+        "rmse": 29.051337741521646
+      },
+      {
+        "mae": 34.0572141161932,
+        "model": "dummy_mean",
+        "prediction_max": 54.18555984555985,
+        "prediction_mean": 48.43880861571102,
+        "prediction_min": 43.116769825918766,
+        "raw_out_of_range_count": 0,
+        "rmse": 39.47494283673992
+      }
+    ],
+    "prediction_postprocessing": "clip_0_100_before_metrics",
+    "primary_metric": "oof_mae",
+    "selected_model": "ridge",
+    "selection_source": "five_fold_physical_source_group_cv_only",
+    "tie_breakers": [
+      "oof_rmse",
+      "model_name"
+    ]
+  },
+  "independent_holdout_evaluated": false,
+  "join": {
+    "accepted_training_rows": 647,
+    "exact_heldout_source_ids_available": false,
+    "exclusion_counts_sequential": {
+      "feature_label_target_mismatch": 0,
+      "mapper_failure_interruption_or_invalid_label": 28,
+      "missing_numeric_target": 0,
+      "missing_or_ambiguous_feature_join": 0,
+      "non_finite_feature": 0,
+      "non_numeric_feature_or_label_target": 0,
+      "not_sparse_model_created": 0,
+      "reserved_heldout_category": 0,
+      "source_group_mismatch": 0
+    },
+    "heldout_categories_excluded": [
+      "bicycle",
+      "bowl",
+      "cake",
+      "plant",
+      "toyplane"
+    ],
+    "independent_holdout_evaluation_allowed": false,
+    "independent_source_groups": 49,
+    "input_unique_experiments": 675
+  },
+  "offline_only": true,
+  "prediction_postprocessing": "clip_0_100",
+  "production_artifact_manifest_created": false,
+  "production_feature_compatible": false,
+  "python_version": "3.9.6",
+  "reason": "Historical eight-feature preprocessing differs from the deployed extractor",
+  "safe_to_integrate_live": false,
+  "schema_version": "historical_registration_experimental_artifact/1.0",
+  "selected_model": "ridge",
+  "sklearn_version": "1.6.1",
+  "source_groups": 49,
+  "training_rows": 647
+}

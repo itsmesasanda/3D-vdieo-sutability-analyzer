@@ -1,0 +1,492 @@
+{
+  "blockers": [
+    "Historical training began with prepared CO3D JPEG directories; no executed upload-video adapter exists.",
+    "Training-time prepared frames/hashes are unavailable, so video-adapter parity cannot be checked against saved training examples.",
+    "Historical ORB and resize defaults were not fully version-pinned across labeling batches."
+  ],
+  "historical_function_source_sha256": "ac727c93fc14ffec7dd8079fb53f876f8a8b71560237ff9e319692d4288a2be0",
+  "live_ridge_inference_authorized": false,
+  "prepared_input_function_parity": true,
+  "runtime": {
+    "numpy": "2.0.2",
+    "opencv": "4.14.0",
+    "pillow": "11.3.0"
+  },
+  "schema_version": "historical_ridge_video_compatibility/1.0",
+  "videos": [
+    {
+      "cpu_seconds": 205.058385,
+      "diagnostics": {
+        "input_adapter": "prepared_60_jpeg_directory",
+        "resized_gray_shapes": [
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ]
+        ],
+        "sampled_positions_within_60": [
+          0,
+          5,
+          10,
+          16,
+          21,
+          26,
+          32,
+          37,
+          42,
+          48,
+          53,
+          59
+        ],
+        "source_implementation_sha256": "ac727c93fc14ffec7dd8079fb53f876f8a8b71560237ff9e319692d4288a2be0"
+      },
+      "feature_order_exact": true,
+      "features": {
+        "brightness_mean": 122.53600244341563,
+        "brightness_variation": 3.988882667830986,
+        "contrast_mean": 56.68655153727868,
+        "dark_fraction": 0.06277713477366255,
+        "orb_features_mean": 385.1666666666667,
+        "orb_matches_mean": 10.636363636363637,
+        "sharpness_mean": 6.795495966034423,
+        "sharpness_variation": 0.4978672919052
+      },
+      "maximum_absolute_feature_difference": 0.0,
+      "numerical_parity": true,
+      "preprocessing": {
+        "adapter_status": "probe_only_not_historically_verified",
+        "decoded_positions": [
+          0,
+          16,
+          33,
+          50,
+          67,
+          84,
+          101,
+          118,
+          135,
+          151,
+          168,
+          185,
+          202,
+          219,
+          236,
+          253,
+          270,
+          286,
+          303,
+          320,
+          337,
+          354,
+          371,
+          388,
+          405,
+          422,
+          438,
+          455,
+          472,
+          489,
+          506,
+          523,
+          540,
+          557,
+          573,
+          590,
+          607,
+          624,
+          641,
+          658,
+          675,
+          692,
+          709,
+          725,
+          742,
+          759,
+          776,
+          793,
+          810,
+          827,
+          844,
+          860,
+          877,
+          894,
+          911,
+          928,
+          945,
+          962,
+          979,
+          996
+        ],
+        "preparation": "decoded BGR -> RGB, max-edge 800 LANCZOS, JPEG quality 90",
+        "prepared_frame_count": 60,
+        "requested_positions": [
+          0,
+          16,
+          33,
+          50,
+          67,
+          84,
+          101,
+          118,
+          135,
+          151,
+          168,
+          185,
+          202,
+          219,
+          236,
+          253,
+          270,
+          286,
+          303,
+          320,
+          337,
+          354,
+          371,
+          388,
+          405,
+          422,
+          438,
+          455,
+          472,
+          489,
+          506,
+          523,
+          540,
+          557,
+          573,
+          590,
+          607,
+          624,
+          641,
+          658,
+          675,
+          692,
+          709,
+          725,
+          742,
+          759,
+          776,
+          793,
+          810,
+          827,
+          844,
+          860,
+          877,
+          894,
+          911,
+          928,
+          945,
+          962,
+          979,
+          996
+        ],
+        "source_frame_count": 997
+      },
+      "recreated_feature_order": [
+        "brightness_mean",
+        "brightness_variation",
+        "contrast_mean",
+        "sharpness_mean",
+        "sharpness_variation",
+        "dark_fraction",
+        "orb_features_mean",
+        "orb_matches_mean"
+      ],
+      "reference_feature_order": [
+        "brightness_mean",
+        "brightness_variation",
+        "contrast_mean",
+        "sharpness_mean",
+        "sharpness_variation",
+        "dark_fraction",
+        "orb_features_mean",
+        "orb_matches_mean"
+      ],
+      "video": "/Users/sasanda/Documents/GitHub/3D-vdieo-sutability-analyzer/data/samples/real_tests/IMG_3913.MOV",
+      "video_sha256": "0c9ca3a9b4ebc77ce0f2bf4a5f496855c877a6beeb3b80e3b59957cd2b27a42a",
+      "wall_seconds": 40.24481
+    },
+    {
+      "cpu_seconds": 239.832806,
+      "diagnostics": {
+        "input_adapter": "prepared_60_jpeg_directory",
+        "resized_gray_shapes": [
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ],
+          [
+            270,
+            480
+          ]
+        ],
+        "sampled_positions_within_60": [
+          0,
+          5,
+          10,
+          16,
+          21,
+          26,
+          32,
+          37,
+          42,
+          48,
+          53,
+          59
+        ],
+        "source_implementation_sha256": "ac727c93fc14ffec7dd8079fb53f876f8a8b71560237ff9e319692d4288a2be0"
+      },
+      "feature_order_exact": true,
+      "features": {
+        "brightness_mean": 124.91049704218106,
+        "brightness_variation": 7.3321053333358055,
+        "contrast_mean": 53.092158711544336,
+        "dark_fraction": 0.05947916666666667,
+        "orb_features_mean": 363.4166666666667,
+        "orb_matches_mean": 7.7272727272727275,
+        "sharpness_mean": 5.875260244682519,
+        "sharpness_variation": 0.9325964249127985
+      },
+      "maximum_absolute_feature_difference": 0.0,
+      "numerical_parity": true,
+      "preprocessing": {
+        "adapter_status": "probe_only_not_historically_verified",
+        "decoded_positions": [
+          0,
+          6,
+          13,
+          20,
+          27,
+          33,
+          40,
+          47,
+          54,
+          61,
+          67,
+          74,
+          81,
+          88,
+          94,
+          101,
+          108,
+          115,
+          122,
+          128,
+          135,
+          142,
+          149,
+          155,
+          162,
+          169,
+          176,
+          183,
+          189,
+          196,
+          203,
+          210,
+          216,
+          223,
+          230,
+          237,
+          244,
+          250,
+          257,
+          264,
+          271,
+          277,
+          284,
+          291,
+          298,
+          305,
+          311,
+          318,
+          325,
+          332,
+          338,
+          345,
+          352,
+          359,
+          366,
+          372,
+          379,
+          386,
+          393,
+          400
+        ],
+        "preparation": "decoded BGR -> RGB, max-edge 800 LANCZOS, JPEG quality 90",
+        "prepared_frame_count": 60,
+        "requested_positions": [
+          0,
+          6,
+          13,
+          20,
+          27,
+          33,
+          40,
+          47,
+          54,
+          61,
+          67,
+          74,
+          81,
+          88,
+          94,
+          101,
+          108,
+          115,
+          122,
+          128,
+          135,
+          142,
+          149,
+          155,
+          162,
+          169,
+          176,
+          183,
+          189,
+          196,
+          203,
+          210,
+          216,
+          223,
+          230,
+          237,
+          244,
+          250,
+          257,
+          264,
+          271,
+          277,
+          284,
+          291,
+          298,
+          305,
+          311,
+          318,
+          325,
+          332,
+          338,
+          345,
+          352,
+          359,
+          366,
+          372,
+          379,
+          386,
+          393,
+          400
+        ],
+        "source_frame_count": 401
+      },
+      "recreated_feature_order": [
+        "brightness_mean",
+        "brightness_variation",
+        "contrast_mean",
+        "sharpness_mean",
+        "sharpness_variation",
+        "dark_fraction",
+        "orb_features_mean",
+        "orb_matches_mean"
+      ],
+      "reference_feature_order": [
+        "brightness_mean",
+        "brightness_variation",
+        "contrast_mean",
+        "sharpness_mean",
+        "sharpness_variation",
+        "dark_fraction",
+        "orb_features_mean",
+        "orb_matches_mean"
+      ],
+      "video": "/Users/sasanda/Documents/GitHub/3D-vdieo-sutability-analyzer/data/samples/real_tests/IMG_3914.MOV",
+      "video_sha256": "e61c7a0d452933d0829fa0f7d59d1d40c96c6160197fb3cfbb743f60247fb468",
+      "wall_seconds": 46.476229
+    }
+  ]
+}

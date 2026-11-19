@@ -1,4 +1,4 @@
-numpy>=1.24,<3
-opencv-python-headless>=4.8,<5
-pytest>=7,<9
+# Streamlit Community Cloud installs this file from the repository root.
+# Editable installation is required because the package uses a src/ layout.
+-e .[ui]
 

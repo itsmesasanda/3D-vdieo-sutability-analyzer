@@ -11,10 +11,6 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from video_suitability.infer import analyze_video
-from video_suitability.ml.registration_rf import (
-    artifact_cache_identity,
-    attach_registration_prediction,
-)
 from video_suitability.presentation import (
     component_rows,
     extract_problem_frames,
@@ -25,6 +21,37 @@ from video_suitability.presentation import (
     timeline_rows,
     viewpoint_diversity_view,
 )
+
+
+MAX_UPLOAD_MB = 150
+MAX_UPLOAD_BYTES = MAX_UPLOAD_MB * 1024 * 1024
+ALLOWED_VIDEO_SUFFIXES = {
+    ".mp4",
+    ".mov",
+    ".avi",
+    ".mkv",
+    ".webm",
+    ".m4v",
+    ".mpg",
+    ".mpeg",
+}
+STREAMLIT_ML_IDENTITY = ("live_ml_disabled", "deployment_2026_11")
+
+
+def _disabled_registration_prediction() -> Dict[str, Any]:
+    """Return the explicit cloud policy without invoking either ML extractor."""
+
+    return {
+        "status": "unavailable",
+        "reason": (
+            "Live Random Forest and Ridge inference are disabled: no saved artifact "
+            "has passed the required input-feature parity checks for uploaded videos."
+        ),
+        "trained_model_used": False,
+        "colmap_run": False,
+        "affects_suitability_score": False,
+        "affects_viewpoint_diversity": False,
+    }
 
 
 APP_CSS = """
@@ -75,7 +102,7 @@ def _hero(st: Any) -> None:
           <div class="mvp-kicker">Capture intelligence · CPU heuristic</div>
           <h1>Will this video reconstruct well?</h1>
           <p>Inspect sharpness, lighting, view overlap and camera motion before spending time on a 3D reconstruction run.</p>
-          <span class="method-chip">No remote upload · optional parity-gated RF · no reconstruction claim</span>
+          <span class="method-chip">CPU heuristic · live ML disabled · no reconstruction claim</span>
         </section>
         """,
         unsafe_allow_html=True,
@@ -266,12 +293,21 @@ def _analyze_upload_payload(
     filename: str,
     object_bbox: Any = None,
     registration_artifact_dir: Any = None,
+    include_viewpoint_diversity: bool = True,
 ) -> Dict[str, Any]:
     """Pure upload-to-result path shared by Streamlit and performance benchmarks."""
 
     upload_wall_started = time.perf_counter()
     upload_cpu_started = time.process_time()
-    suffix = Path(filename).suffix or ".mp4"
+    del registration_artifact_dir  # Retained for compatibility with existing callers/tests.
+    suffix = Path(filename).suffix.lower() or ".mp4"
+    if suffix not in ALLOWED_VIDEO_SUFFIXES:
+        raise ValueError(f"Unsupported video extension: {suffix}")
+    if len(buffer) > MAX_UPLOAD_BYTES:
+        raise ValueError(
+            f"Upload exceeds the {MAX_UPLOAD_MB} MB deployment limit. "
+            "Trim or recompress the video before analysis."
+        )
     temporary_path = ""
     try:
         write_wall_started = time.perf_counter()
@@ -285,12 +321,9 @@ def _analyze_upload_payload(
             temporary_path,
             object_bbox=object_bbox,
             include_performance_profile=True,
+            include_viewpoint_diversity=include_viewpoint_diversity,
         )
-        report = attach_registration_prediction(
-            report,
-            Path(temporary_path),
-            artifact_dir=registration_artifact_dir,
-        )
+        report["registration_prediction"] = _disabled_registration_prediction()
         rows = timeline_rows(report)
         return {
             "filename": filename,
@@ -318,27 +351,37 @@ def _analyze_upload_payload(
 
 
 def _run_uploaded_analysis(
-    st: Any, upload: Any, object_bbox: Any = None
+    st: Any,
+    upload: Any,
+    object_bbox: Any = None,
+    include_viewpoint_diversity: bool = True,
 ) -> Dict[str, Any]:
     buffer = upload.getbuffer()
     digest = hashlib.sha256(buffer).hexdigest()
     normalized_bbox = tuple(object_bbox) if object_bbox is not None else None
-    registration_identity = artifact_cache_identity()
     cached = st.session_state.get("video_analysis_cache")
     if (
         cached
         and cached.get("digest") == digest
         and cached.get("object_bbox") == normalized_bbox
-        and cached.get("registration_artifact_identity") == registration_identity
+        and cached.get("include_viewpoint_diversity")
+        == include_viewpoint_diversity
+        and cached.get("registration_artifact_identity") == STREAMLIT_ML_IDENTITY
     ):
         return cached
     with st.spinner("Sampling the full timeline and checking quality, overlap and motion…"):
-        result = _analyze_upload_payload(buffer, upload.name, object_bbox=object_bbox)
+        result = _analyze_upload_payload(
+            buffer,
+            upload.name,
+            object_bbox=object_bbox,
+            include_viewpoint_diversity=include_viewpoint_diversity,
+        )
     cached = {
         **result,
         "digest": digest,
         "object_bbox": normalized_bbox,
-        "registration_artifact_identity": registration_identity,
+        "include_viewpoint_diversity": include_viewpoint_diversity,
+        "registration_artifact_identity": STREAMLIT_ML_IDENTITY,
     }
     st.session_state["video_analysis_cache"] = cached
     return cached
@@ -428,7 +471,10 @@ def _analysis_view(st: Any) -> None:
     upload = st.file_uploader(
         "Drop in an object-orbit video",
         type=["mp4", "mov", "avi", "mkv", "webm", "m4v", "mpg", "mpeg"],
-        help="For best evidence, record a slow orbit around one mostly static object.",
+        help=(
+            f"For best evidence, record a slow orbit around one mostly static object. "
+            f"Cloud uploads are limited to {MAX_UPLOAD_MB} MB."
+        ),
     )
     if upload is None:
         left, middle, right = st.columns(3)
@@ -436,7 +482,15 @@ def _analysis_view(st: Any) -> None:
         middle.info("**2 · Analyze**\n\nUniform samples cover the complete declared timeline.")
         right.info("**3 · Improve**\n\nInspect exact intervals and retake what needs fixing.")
         return
-    use_object_box = st.checkbox(
+    include_viewpoint_diversity = st.checkbox(
+        "Run experimental viewpoint-diversity analysis",
+        value=False,
+        help=(
+            "Optional and separate from the suitability score. It adds long-gap "
+            "geometric comparisons and CPU time; any failure is isolated."
+        ),
+    )
+    use_object_box = include_viewpoint_diversity and st.checkbox(
         "Focus viewpoint analysis on a selected object region",
         value=False,
         help=(
@@ -495,8 +549,10 @@ def _analysis_view(st: Any) -> None:
         existing
         and existing.get("digest") == buffer_digest
         and existing.get("object_bbox") == bbox_key
+        and existing.get("include_viewpoint_diversity")
+        == include_viewpoint_diversity
         and existing.get("registration_artifact_identity")
-        == artifact_cache_identity()
+        == STREAMLIT_ML_IDENTITY
     )
     analyze_clicked = st.button(
         "Analyze video",
@@ -507,7 +563,12 @@ def _analysis_view(st: Any) -> None:
         st.info("Choose the optional object region, then click Analyze video.")
         return
     try:
-        result = _run_uploaded_analysis(st, upload, object_bbox=object_bbox)
+        result = _run_uploaded_analysis(
+            st,
+            upload,
+            object_bbox=object_bbox,
+            include_viewpoint_diversity=include_viewpoint_diversity,
+        )
     except Exception as exc:
         st.error(f"Analysis failed: {exc}")
         return
@@ -572,6 +633,39 @@ def _analysis_view(st: Any) -> None:
 
 
 def _evaluation_view(st: Any) -> None:
+    st.markdown("### Offline experimental ML comparison")
+    st.info(
+        "**Best offline model: Ridge** — grouped cross-validation MAE "
+        "**19.62 percentage points** across 647 historical records, with physical "
+        "source groups kept together. No independent held-out evaluation was "
+        "completed. Historical preprocessing has not been proven identical to the "
+        "live upload path, so **live Ridge and Random Forest predictions are "
+        "unavailable**. This estimate does not guarantee successful 3D reconstruction."
+    )
+    with st.expander("Offline grouped-CV results"):
+        st.dataframe(
+            [
+                {"Model": "Ridge", "MAE (pp)": 19.6249, "RMSE (pp)": 27.0212},
+                {
+                    "Model": "Random Forest",
+                    "MAE (pp)": 20.0599,
+                    "RMSE (pp)": 27.3581,
+                },
+                {
+                    "Model": "Gradient Boosting",
+                    "MAE (pp)": 21.1340,
+                    "RMSE (pp)": 29.0513,
+                },
+                {
+                    "Model": "Dummy mean",
+                    "MAE (pp)": 34.0572,
+                    "RMSE (pp)": 39.4749,
+                },
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+    st.divider()
     st.markdown("### Preserved human-feedback evaluation")
     st.markdown(
         "<div class='disclaimer'><strong>Not an accuracy benchmark.</strong> These four videos informed the v2 failure-mode audit, only one has a numerical human estimate, and none has completed downstream reconstruction ground truth.</div>",

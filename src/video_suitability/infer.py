@@ -50,6 +50,7 @@ def analyze_video(
     camera_intrinsics: Optional[Mapping[str, float]] = None,
     object_bbox: Optional[Sequence[float]] = None,
     include_performance_profile: bool = False,
+    include_viewpoint_diversity: bool = True,
 ) -> Dict[str, Any]:
     """Analyze a local video and return a JSON-serializable heuristic report."""
 
@@ -94,35 +95,78 @@ def analyze_video(
         ),
     )
     object_geometry: Optional[Dict[str, Any]] = None
-    if normalized_object_bbox is None:
-        viewpoint_diversity = measured(
-            "whole_frame_viewpoint",
-            lambda: analyze_viewpoint_diversity(
-                sampled.frames,
-                sampled.frame_indices,
-                sampled.timestamps_seconds,
-                quality["summary"],
-                geometry,
-                cfg,
-                detected_features=detected_features,
-                camera_intrinsics=camera_intrinsics,
-            ),
+    viewpoint_failure_reason: Optional[str] = None
+
+    def unavailable_viewpoint(reason: str) -> Dict[str, Any]:
+        return {
+            "label": "Unknown",
+            "evidence_status": "insufficient",
+            "summary": reason,
+            "method": {
+                "analysis_mode": (
+                    "object_focused"
+                    if normalized_object_bbox is not None
+                    else "whole_frame"
+                ),
+                "affects_overall_score": False,
+                "trained_model_used": False,
+                "colmap_run": False,
+                "intrinsics_used": False,
+            },
+            "indicators": {},
+            "decision_explanation": {
+                "primary_reason": reason,
+                "insufficient_evidence_reasons": [reason],
+            },
+            "recommendations": [
+                "Enable the experimental viewpoint analysis only when its additional CPU cost is acceptable."
+            ],
+            "warnings": [reason],
+            "repeated_view_intervals": [],
+        }
+
+    if not include_viewpoint_diversity:
+        viewpoint_failure_reason = (
+            "Experimental viewpoint-diversity analysis was not requested for this run."
         )
+        viewpoint_diversity = unavailable_viewpoint(viewpoint_failure_reason)
     else:
-        viewpoint_diversity, object_geometry = measured(
-            "object_tracking_and_viewpoint",
-            lambda: analyze_object_focused_viewpoint(
-                sampled.frames,
-                sampled.frame_indices,
-                sampled.timestamps_seconds,
-                quality["summary"],
-                geometry,
-                detected_features,
-                normalized_object_bbox,
-                cfg,
-                camera_intrinsics=camera_intrinsics,
-            ),
-        )
+        try:
+            if normalized_object_bbox is None:
+                viewpoint_diversity = measured(
+                    "whole_frame_viewpoint",
+                    lambda: analyze_viewpoint_diversity(
+                        sampled.frames,
+                        sampled.frame_indices,
+                        sampled.timestamps_seconds,
+                        quality["summary"],
+                        geometry,
+                        cfg,
+                        detected_features=detected_features,
+                        camera_intrinsics=camera_intrinsics,
+                    ),
+                )
+            else:
+                viewpoint_diversity, object_geometry = measured(
+                    "object_tracking_and_viewpoint",
+                    lambda: analyze_object_focused_viewpoint(
+                        sampled.frames,
+                        sampled.frame_indices,
+                        sampled.timestamps_seconds,
+                        quality["summary"],
+                        geometry,
+                        detected_features,
+                        normalized_object_bbox,
+                        cfg,
+                        camera_intrinsics=camera_intrinsics,
+                    ),
+                )
+        except Exception as exc:
+            viewpoint_failure_reason = (
+                "Experimental viewpoint analysis failed without affecting the "
+                f"suitability score: {type(exc).__name__}: {exc}"
+            )
+            viewpoint_diversity = unavailable_viewpoint(viewpoint_failure_reason)
 
     def build_scores_and_segments() -> Any:
         baseline = score_analysis_v1(quality, geometry, len(sampled.frames), cfg)
@@ -143,6 +187,8 @@ def analyze_video(
         "Any separately attached ML prediction is not part of this heuristic score or its subscores.",
     ]
     warnings.extend(sampled.warnings)
+    if viewpoint_failure_reason:
+        warnings.append(viewpoint_failure_reason)
     geometry_summary = geometry["summary"]
     if float(geometry_summary["valid_geometry_pair_fraction"]) < 0.35:
         warnings.append(

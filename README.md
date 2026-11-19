@@ -8,10 +8,11 @@ evidence and does not change the heuristic score or optional Random Forest resul
 An optional middle-frame object box focuses this category on tracked object features
 while preserving background matches as separate diagnostics.
 
-Streamlit also has a separate, parity-gated slot for a Random Forest prediction of
-COLMAP registered-image percentage. No compatible model artifact or eight-feature
-training export is currently present, so this result explicitly reports
-`unavailable`; it never substitutes either heuristic result.
+The public Streamlit deployment hard-disables both learned predictors. No Ridge or
+Random Forest artifact has passed video-input feature parity, so the UI explicitly
+reports live ML as `unavailable`; neither model can be activated by an environment
+variable or a stray artifact. The optional CLI Random Forest path retains its strict
+compatibility gates for a future verified artifact.
 
 The final-label preparation path is also available without training. It merges
 multiple COLMAP label batches, verifies the exact 60-image inputs and provenance,
@@ -42,10 +43,10 @@ python -m pip install -e ".[dev]"
 
 No CO3D data, CUDA installation, GPU, paid API, or network service is needed after installation.
 
-For Streamlit deployment with a trusted Random Forest artifact:
+For the Streamlit UI (live ML remains disabled):
 
 ```bash
-python -m pip install -e ".[app-ml]"
+python -m pip install -e ".[ui]"
 ```
 
 ## Run the CLI
@@ -305,9 +306,9 @@ provides:
 - a prominent 0–100 score, suitability band, v1 comparison, five explained
   components, and confidence/uncertainty banner;
 - a separate Estimated Viewpoint Diversity panel with Low/Moderate/High/Unknown,
-  evidence counts, limitations, and actionable capture guidance;
-- a separate predicted COLMAP image-registration percentage when a compatible
-  Random Forest is installed, or an explicit unavailable/incompatible reason;
+  evidence counts, limitations, and actionable capture guidance when the optional
+  experimental checkbox is enabled;
+- an explicit notice that live Ridge and Random Forest inference is unavailable;
 - optional middle-frame object selection, tracked object-only viewpoint evidence,
   background-contamination diagnostics, and a clear Unknown reason on track loss;
 - a filterable timestamped problem timeline and representative problem frames;
@@ -321,6 +322,40 @@ Uploaded content is analyzed locally. Analysis is button-triggered and session s
 caches an upload by SHA-256 plus object box so ordinary widget reruns do not repeat
 the work. Problem-frame rendering is deferred to a separate button. See
 [`docs/ui_mvp_audit.md`](docs/ui_mvp_audit.md) for verified behavior and limitations.
+
+### Streamlit Community Cloud deployment
+
+- Repository: `itsmesasanda/3D-vdieo-sutability-analyzer`
+- Branch: `main`
+- Application entry point: `app.py`
+- Recommended Python version: `3.11`
+- Secrets: none
+
+Commit and push the deployment files, then open `https://share.streamlit.io`, select
+**Create app**, choose the repository and `main` branch, and enter `app.py` as the
+file path. In Advanced settings select Python 3.11 and leave Secrets empty. Community
+Cloud installs the root `requirements.txt`, uses `packages.txt` for Debian `ffmpeg`,
+and reads `.streamlit/config.toml` for the 150 MB upload limit.
+
+The public-cloud default runs the established heuristic path only. Estimated
+Viewpoint Diversity is opt-in; an exception becomes an isolated `Unknown` result and
+cannot abort or change the main score. Uploaded bytes are rejected above 150 MB,
+written to a unique temporary file, and removed in a `finally` block. The analyzer
+retains at most 32 downscaled analysis samples by default.
+
+Local preflight:
+
+```bash
+python -m pip install -r requirements.txt
+python scripts/check_streamlit_deployment.py
+python -m pytest -q
+streamlit run app.py --server.headless true
+```
+
+After deployment, test one short MP4 and one iPhone/Android MOV. Leave experimental
+viewpoint analysis off for the first run, confirm the heuristic score and JSON
+download, then repeat with the experimental checkbox if desired. Live Ridge and
+Random Forest output must remain unavailable.
 
 ## 4K performance
 
@@ -459,6 +494,7 @@ scripts/ml/                        dataset, training, Colab notebook tools
   build_experimental_registration_training_notebook.py  reproducible final Colab workflow
   executed_regeneration_adapter_template.py  deliberately unimplemented evidence adapter
   run_r1_feature_pilot.py  three-record R1 regeneration and production features
+  train_historical_registration_experiment.py  offline legacy-feature grouped CV
 scripts/reconstruction/        frame extraction, environment audit, sparse COLMAP runner
 notebooks/colmap_reconstruction_colab.ipynb
 notebooks/ml_training_colab.ipynb
@@ -477,6 +513,8 @@ docs/colab_label_compatibility_audit.md
 docs/real_colmap_csv_dataset_audit.md
 docs/experimental_registration_training.md
 docs/r1_regeneration_pilot.md
+docs/historical_registration_experiment.md
+docs/historical_ridge_live_compatibility.md
 evaluation/viewpoint_real_validation/  derived real-video CSV and audit
 evaluation/object_focused_validation/  manifests and whole/object comparison
 evaluation/
@@ -518,6 +556,8 @@ See [the viewpoint-diversity audit](docs/viewpoint_diversity.md),
 [the real 60-frame CSV dataset audit](docs/real_colmap_csv_dataset_audit.md),
 [the experimental registration-model training runbook](docs/experimental_registration_training.md),
 [the R1 regeneration pilot](docs/r1_regeneration_pilot.md),
+[the fast historical-feature experiment](docs/historical_registration_experiment.md),
+[the historical Ridge live-compatibility decision](docs/historical_ridge_live_compatibility.md),
 [the notebook audit](docs/notebook_audit.md),
 [the v2 scoring audit](docs/scoring_v2_audit.md), and [STATUS.md](STATUS.md) for
 actual executed commands and results.

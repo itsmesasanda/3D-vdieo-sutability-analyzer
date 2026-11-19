@@ -1498,3 +1498,132 @@ and PyTorch tests unavailable in the local core environment. No production artif
 manifest was created, no model was trained or activated, and the heuristic and
 viewpoint code paths were unchanged.
 
+## Fast historical-feature ML experiment — trained offline, not activated (2026-11-19)
+
+Paired the original 45-row `random_forest_experiment/features.csv` with its 60-frame
+labels and paired the selected A–F/R1–R3 `new_features_50*.csv` files one-to-one with
+the label exports already selected by `record_audit.csv`. Every batch feature tag set
+matched its audit batch exactly. This produced 675 unambiguous joins; excluding 28
+mapper-failure, interruption, or otherwise invalid label rows left 647 numeric
+`sparse_model_created` experiments across 49 physical source groups.
+
+The historical extractor implementation was identical in the available A, B, C,
+R1, R2, and R3 notebooks (source hash
+`ac727c93fc14ffec7dd8079fb53f876f8a8b71560237ff9e319692d4288a2be0`).
+It is not production-compatible: 12 versus 16 frame samples, conditional max-edge
+480 default resizing versus fixed 320×240 `INTER_AREA`, ORB 400/defaults versus ORB
+1000/explicit parameters and RNG, and three different feature meanings on each side.
+
+All models used the same five physical-source GroupKFold splits. Predictions were
+clipped to 0–100 before metrics. Observed out-of-fold results were Ridge MAE 19.6249 /
+RMSE 27.0212, Random Forest 20.0599 / 27.3581, Gradient Boosting 21.1340 / 29.0513,
+and Dummy mean 34.0572 / 39.4749. Ridge won by grouped-CV MAE. Exact held-out source
+IDs and compatible evaluation rows were unavailable, so no independent held-out
+metric is claimed.
+
+The versioned output is
+`evaluation/ml/historical_registration_experiment/historical_opencv8_v2/`. It
+contains the 647-row joined table, frozen splits, OOF predictions, metrics, feature
+definition, saved Ridge pipeline, parity rows, hashes, and an explicitly offline-only
+manifest. No production `artifact_manifest.json` was created: the selected model is
+not Random Forest and historical preprocessing cannot pass production feature parity.
+
+The final experiment used Python 3.9.6 and scikit-learn 1.6.1. A second clean run
+produced identical SHA-256 values for the selected model, grouped-CV summary, and all
+OOF predictions. Compileall and `git diff --check` exited 0; the full suite reported
+`82 passed, 3 skipped in 12.36s`. The skips are optional scikit-learn/PyTorch tests in
+the core virtual environment; training itself ran successfully with the system
+scikit-learn installation. No CO3D download, frame regeneration, or COLMAP command
+was run.
+
+## Historical Ridge live-inference compatibility — blocked honestly (2026-11-19)
+
+Recovered the exact legacy eight-feature image-directory function from the available
+labeling notebooks and added a standalone compatibility implementation. Its feature
+names/order, 12-of-60 sampling, conditional max-edge-480 default resize, ORB 400,
+Lowe-ratio matching, brightness/sharpness variation, and dark-fraction definitions
+match the notebook source. Focused prepared-input tests produced zero numerical
+difference from the reference function.
+
+Live compatibility could not be established. Historical training began with 60
+prepared CO3D JPEGs, not uploaded videos; no executed video adapter exists; the
+training-time prepared frames/hashes are unavailable for parity; and OpenCV ORB and
+resize defaults were not pinned consistently. A candidate video adapter was kept as
+a non-deployable probe only. Streamlit does not import it and no Ridge prediction
+field or panel was added.
+
+On the real phone recordings `IMG_3913.MOV` and `IMG_3914.MOV`, reference/recreated
+prepared-input features matched exactly. Probe runtimes were respectively 40.244810 s
+wall / 205.058385 s process CPU and 46.476229 s wall / 239.832806 s process CPU.
+These timings also make the unoptimized 60-frame/JPEG route unsuitable for the
+current interactive upload path. No model was retrained and no production RF,
+heuristic, viewpoint, or geometric code was changed.
+
+Compileall and `git diff --check` exited 0. The final full suite reported
+`85 passed, 3 skipped in 51.63s`; the three skips remain optional scikit-learn and
+PyTorch tests in the core virtual environment.
+
+## Streamlit Community Cloud deployment preparation — complete (2026-11-19)
+
+Prepared the stable public path for repository `itsmesasanda/3D-vdieo-sutability-analyzer`,
+branch `main`, entry point `app.py`, with Python 3.11 recommended in Community Cloud.
+The root `requirements.txt` installs the src-layout package with its UI extra;
+`packages.txt` requests Debian `ffmpeg`; and `.streamlit/config.toml` configures a
+150 MB upload limit, headless mode, minimal toolbar, and disabled usage telemetry.
+
+The Streamlit layer now hard-disables both Ridge and Random Forest inference and
+does not import or call either predictor. Supplying an artifact path cannot activate
+ML in the app. The existing CLI Random Forest compatibility gates remain unchanged.
+The Evaluation tab separately reports the offline Ridge grouped-CV result (MAE
+19.6249 percentage points), 647 historical rows, and the lack of an independent
+held-out evaluation without presenting it as reconstruction quality.
+
+Estimated Viewpoint Diversity is opt-in in Streamlit and remains separate from the
+unchanged heuristic. Its call is exception-isolated in `analyze_video`; a disabled
+or failed run returns `Unknown`, records the reason, and leaves the overall score,
+subscores, and baseline unchanged. The adjacent ORB/RANSAC evidence used by the
+established heuristic remains intact. Uploads above 150 MB and unsupported suffixes
+are rejected before temporary-file creation. Accepted uploads use unique temporary
+files removed in `finally`; session caching includes the content hash, object box,
+viewpoint option, and the fixed disabled-ML policy identity.
+
+Real upload-path checks, with optional viewpoint disabled and diagnostic rendering
+timed separately:
+
+- `IMG_3914.MOV`: 44.04 MB, 2160x3840 HEVC, 401 frames at 60 fps. Upload-to-result
+  was 11.011878 s wall / 38.593701 s process CPU; deferred rendering of three
+  diagnostic frames was 2.120431 s wall. Heuristic score: 60.0.
+- `copy_179FD8BF-1F7D-4549-9E3E-75A648BE491E.mp4`: 28.61 MB, 1160x718 HEVC,
+  1,331 frames at 30 fps. Upload-to-result was 3.913708 s wall / 10.394277 s process
+  CPU; deferred rendering of three frames was 0.236658 s wall. Heuristic score: 55.0.
+- An unsupported `.txt` upload raised a concise `ValueError`. Corrupt MP4 bytes
+  raised `VideoValidationError` with a codec/corruption explanation. Neither left a
+  temporary file through the app's cleanup path.
+
+The local OpenCV 4.14.0 build reports `FFMPEG: YES`; NumPy is 2.0.2 and Streamlit is
+1.50.0. `pip check` reported no broken requirements. A localhost Streamlit launch
+on port 8502 succeeded and `/_stcore/health` returned `ok`; the process was then
+stopped normally. The initial sandboxed bind was denied by local permissions, and
+the approved localhost-only retry succeeded.
+
+Final commands and observed results:
+
+```bash
+PYTHONPATH=src:. .venv/bin/python scripts/check_streamlit_deployment.py
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-deploy-pycache \
+  .venv/bin/python -m compileall -q app.py src scripts tests
+git diff --check
+.venv/bin/python -m pip check
+PYTHONPATH=src:. .venv/bin/python -m pytest -q
+```
+
+The preflight printed `PASS`; compileall and `git diff --check` exited 0; `pip
+check` reported no broken requirements; and the full suite reported `89 passed, 3
+skipped in 68.15s`. The skips remain optional scikit-learn/PyTorch tests. No model
+was retrained or activated, and no CO3D download, COLMAP command, heuristic scoring
+change, or user-media modification occurred.
+
+One preliminary focused pytest command referenced an outdated/nonexistent viewpoint
+test node and therefore collected no tests. It was corrected to the actual node;
+the focused deployment selection then reported `6 passed in 3.42s`.
+
