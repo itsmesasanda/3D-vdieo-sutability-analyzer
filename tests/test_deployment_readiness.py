@@ -17,7 +17,13 @@ def test_streamlit_cloud_dependency_and_upload_configuration():
     )
     packages = (REPOSITORY_ROOT / "packages.txt").read_text(encoding="utf-8")
 
-    assert "-e .[ui]" in requirements
+    assert "-e .[app-ml]" in requirements
+    assert "scikit-learn==1.6.1" in (
+        REPOSITORY_ROOT / "pyproject.toml"
+    ).read_text(encoding="utf-8")
+    assert "opencv-python-headless==4.14.0.94" in (
+        REPOSITORY_ROOT / "pyproject.toml"
+    ).read_text(encoding="utf-8")
     assert "pytest" not in requirements
     assert "maxUploadSize = 150" in config
     assert "headless = true" in config
@@ -34,7 +40,9 @@ def test_streamlit_styles_include_desktop_and_mobile_layouts():
     assert '[data-testid="stFileUploaderDropzone"]' in app.APP_CSS
 
 
-def test_streamlit_policy_keeps_live_ml_disabled(synthetic_videos, tmp_path):
+def test_streamlit_policy_keeps_random_forest_disabled_by_default(
+    synthetic_videos, tmp_path
+):
     video = synthetic_videos["front_only"]
     result = app._analyze_upload_payload(
         video.read_bytes(),
@@ -47,6 +55,7 @@ def test_streamlit_policy_keeps_live_ml_disabled(synthetic_videos, tmp_path):
     assert prediction["status"] == "unavailable"
     assert prediction["trained_model_used"] is False
     assert prediction["colmap_run"] is False
+    assert result["report"]["experimental_ridge_prediction"]["status"] == "not_requested"
     assert result["report"]["viewpoint_diversity"]["label"] == "Unknown"
 
 

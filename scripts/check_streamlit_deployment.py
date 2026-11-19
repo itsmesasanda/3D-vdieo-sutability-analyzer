@@ -22,20 +22,25 @@ def main() -> int:
     packages = (ROOT / "packages.txt").read_text(encoding="utf-8").splitlines()
 
     require((ROOT / "app.py").is_file(), "app.py is missing")
-    require("-e .[ui]" in requirements, "requirements.txt must install the UI package")
+    require("-e .[app-ml]" in requirements, "requirements.txt must install app ML dependencies")
     require("maxUploadSize = 150" in config, "150 MB upload limit is not configured")
     require("ffmpeg" in packages, "packages.txt must request ffmpeg")
     require(importlib.util.find_spec("streamlit") is not None, "streamlit is not installed")
     require(importlib.util.find_spec("cv2") is not None, "headless OpenCV is not installed")
+    require(importlib.util.find_spec("sklearn") is not None, "scikit-learn is not installed")
+    require(importlib.util.find_spec("joblib") is not None, "joblib is not installed")
 
     if str(ROOT) not in sys.path:
         sys.path.insert(0, str(ROOT))
     import app
 
     prediction = app._disabled_registration_prediction()
-    require(prediction["status"] == "unavailable", "live ML is not disabled")
-    require(prediction["trained_model_used"] is False, "live ML policy is inconsistent")
-    print("PASS: entry point, dependencies, upload policy, ffmpeg, and disabled ML policy")
+    require(prediction["status"] == "unavailable", "Random Forest must remain disabled")
+    require(prediction["trained_model_used"] is False, "Random Forest policy is inconsistent")
+    ridge = app._not_requested_experimental_ridge()
+    require(ridge["status"] == "not_requested", "Ridge must be opt-in")
+    require(ridge["affects_suitability_score"] is False, "Ridge must stay separate")
+    print("PASS: entry point, dependencies, upload policy, ffmpeg, disabled RF, and opt-in Ridge policy")
     return 0
 
 

@@ -1,4 +1,4 @@
 # Streamlit Community Cloud installs this file from the repository root.
 # Editable installation is required because the package uses a src/ layout.
--e .[ui]
+-e .[app-ml]
 

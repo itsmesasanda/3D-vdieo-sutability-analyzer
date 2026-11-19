@@ -1790,3 +1790,28 @@ the final full suite reported `98 passed, 3 skipped in 102.59s`. The skips remai
 scikit-learn/PyTorch tests. No scoring, ML feature, artifact, model, geometry-decision,
 COLMAP, timestamp-diagnostic, or reconstruction code changed.
 
+## Opt-in experimental Ridge live inference — implemented (2026-11-19)
+
+Added a deterministic uploaded-video policy for the exact historical eight-feature
+implementation and a separate integrity-gated Ridge result. The adapter defines 60
+uniform ordered positions but decodes/JPEG-round-trips only the 12 positions the
+legacy extractor consumes. Direct regression testing against a fully materialized
+60-JPEG adapter produced exactly equal feature dictionaries. This is a runtime
+optimization, not a claim of parity with the historical CO3D input generator.
+
+The loader pins the model, feature definition and prediction-parity hashes; validates
+the eight names/order, Ridge estimator and three saved outputs; and deserializes only
+after the model bytes match the trusted SHA-256. The `.joblib` stays ignored. Cloud
+deployment accepts its base64 bytes through `EXPERIMENTAL_RIDGE_ARTIFACT_B64` and
+fails closed if absent or altered. Random Forest gates, heuristic score and geometric
+analysis were not changed.
+
+Observed local Ridge-path results were 83.508634% in 10.785149 s for `IMG_3913.MOV`,
+78.422076% in 9.729399 s for `IMG_3914.MOV`, and 63.557192% in 0.823165 s for the
+waving rendered-hand control. All are explicitly unvalidated. Two repeat hand runs
+had identical features/prediction; its moderate output demonstrates domain/model
+limitations rather than instability. No COLMAP, CO3D download or retraining ran.
+The complete suite reported `106 passed, 2 skipped in 128.71s`; both skips are the
+unchanged optional PyTorch tests. Deployment preflight passed, Streamlit started on
+port 8504, and `/_stcore/health` returned `ok`.
+

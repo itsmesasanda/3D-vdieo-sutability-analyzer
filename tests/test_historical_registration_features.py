@@ -6,7 +6,9 @@ import numpy as np
 from video_suitability.ml.historical_registration_features import (
     HISTORICAL_FEATURE_NAMES,
     extract_historical_features_from_image_directory,
+    extract_historical_features_from_uploaded_video,
     extract_historical_features_from_video_probe,
+    prepare_video_for_historical_probe,
 )
 
 
@@ -98,7 +100,26 @@ def test_video_adapter_remains_probe_only():
     assert diagnostics["live_inference_authorized"] is False
 
 
-def test_streamlit_does_not_enable_historical_ridge():
+def test_live_adapter_is_exactly_equivalent_to_materialized_adapter_jpegs(tmp_path):
+    video = ROOT / "data/samples/good_orbit.mp4"
+    prepared = tmp_path / "prepared"
+    prepare_video_for_historical_probe(video, prepared)
+    materialized, _ = extract_historical_features_from_image_directory(prepared)
+    optimized, diagnostics = extract_historical_features_from_uploaded_video(video)
+
+    assert optimized == materialized
+    assert tuple(optimized) == HISTORICAL_FEATURE_NAMES
+    assert diagnostics["logical_prepared_frame_count"] == 60
+    assert diagnostics["materialized_feature_frame_count"] == 12
+    assert diagnostics["adapter_status"] == (
+        "new_live_policy_training_input_equivalence_not_established"
+    )
+    assert diagnostics["requested_source_positions"] == diagnostics[
+        "decoded_source_positions"
+    ]
+
+
+def test_streamlit_labels_historical_ridge_as_experimental():
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert "historical_registration_features" not in app_source
-    assert "Experimental COLMAP Registration Estimate" not in app_source
+    assert "Experimental ML Registration Estimate" in app_source
+    assert "not been proven equivalent" in app_source

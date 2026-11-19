@@ -8,11 +8,12 @@ evidence and does not change the heuristic score or optional Random Forest resul
 An optional middle-frame object box focuses this category on tracked object features
 while preserving background matches as separate diagnostics.
 
-The public Streamlit deployment hard-disables both learned predictors. No Ridge or
-Random Forest artifact has passed video-input feature parity, so the UI explicitly
-reports live ML as `unavailable`; neither model can be activated by an environment
-variable or a stray artifact. The optional CLI Random Forest path retains its strict
-compatibility gates for a future verified artifact.
+The public Streamlit deployment keeps Random Forest disabled behind its existing
+production parity gates. A separate, opt-in **experimental Ridge** preview can run
+only after the pinned historical artifact passes SHA-256, feature-order, estimator,
+and saved-prediction parity checks. Its uploaded-video adapter is a new inference
+policy and is not proven equivalent to the CO3D training-input generator, so the UI
+labels every output unvalidated and never mixes it into either analyzer.
 
 The final-label preparation path is also available without training. It merges
 multiple COLMAP label batches, verifies the exact 60-image inputs and provenance,
@@ -26,9 +27,9 @@ Colab outputs can first be audited and normalized with the read-only
 [real dataset audit](docs/real_colmap_csv_dataset_audit.md).
 
 The production heuristic does **not** reconstruct a 3D model, upload the video, or
-claim an ML prediction. A separate Milestone 3A experiment can run an installed
+claim an ML prediction by itself. A separate Milestone 3A experiment can run an installed
 COLMAP executable for reconstruction-grounded validation; it never changes the
-heuristic result. No trained/validated model artifact currently exists.
+heuristic result. No production-validated ML artifact currently exists.
 
 ## Install
 
@@ -43,10 +44,10 @@ python -m pip install -e ".[dev]"
 
 No CO3D data, CUDA installation, GPU, paid API, or network service is needed after installation.
 
-For the Streamlit UI (live ML remains disabled):
+For the Streamlit UI and optional experimental Ridge dependencies:
 
 ```bash
-python -m pip install -e ".[ui]"
+python -m pip install -e ".[app-ml]"
 ```
 
 ## Run the CLI
@@ -135,6 +136,9 @@ The stable top-level fields are:
   predicted COLMAP registered-image percentage only after artifact hashes, target
   semantics, the exact eight-feature contract, and saved-training-example parity
   all pass. It never affects either heuristic result and does not run COLMAP.
+- `experimental_ridge_prediction` is the separate opt-in historical Ridge preview.
+  It records artifact integrity, exact ordered features, adapter policy/timings, and
+  the unresolved uploaded-video versus CO3D domain mismatch.
 
 The overall score uses fixed, declared weights:
 
@@ -302,7 +306,7 @@ print(report["baseline_v1"]["overall_score"], report["score_comparison"])
 ## Streamlit UI
 
 ```bash
-python -m pip install -e ".[ui]"
+python -m pip install -e ".[app-ml]"
 streamlit run app.py
 ```
 
@@ -314,7 +318,8 @@ provides:
 - a separate Estimated Viewpoint Diversity panel with Low/Moderate/High/Unknown,
   evidence counts, limitations, and actionable capture guidance when the optional
   experimental checkbox is enabled;
-- an explicit notice that live Ridge and Random Forest inference is unavailable;
+- a separate opt-in Experimental ML Registration Estimate with prominent
+  domain-shift and missing-held-out-validation warnings;
 - optional middle-frame object selection, tracked object-only viewpoint evidence,
   background-contamination diagnostics, and a clear Unknown reason on track loss;
 - a filterable timestamped problem timeline and representative problem frames;
@@ -335,11 +340,27 @@ the work. Problem-frame rendering is deferred to a separate button. See
 - Branch: `main`
 - Application entry point: `app.py`
 - Recommended Python version: `3.11`
-- Secrets: none
+- Secret for opt-in Ridge: `EXPERIMENTAL_RIDGE_ARTIFACT_B64` (optional)
 
 Commit and push the deployment files, then open `https://share.streamlit.io`, select
 **Create app**, choose the repository and `main` branch, and enter `app.py` as the
-file path. In Advanced settings select Python 3.11 and leave Secrets empty. Community
+file path. In Advanced settings select Python 3.11. Random Forest requires no secret
+and remains disabled. To enable only the opt-in experimental Ridge panel, generate a
+single-line value locally without committing the ignored model binary:
+
+```bash
+base64 -i evaluation/ml/historical_registration_experiment/historical_opencv8_v2/experimental_model.joblib | tr -d '\n'
+```
+
+Paste the output into the app's Secrets editor as:
+
+```toml
+EXPERIMENTAL_RIDGE_ARTIFACT_B64 = "PASTE_SINGLE_LINE_BASE64_HERE"
+```
+
+The app verifies the decoded bytes against the pinned SHA-256 before joblib is
+allowed to deserialize them. A missing, malformed or replaced secret produces a
+friendly unavailable result while the main report continues. Community
 Cloud installs the root `requirements.txt`, uses `packages.txt` for Debian `ffmpeg`,
 and reads `.streamlit/config.toml` for the 150 MB upload limit.
 
@@ -364,10 +385,10 @@ python -m pytest -q
 streamlit run app.py --server.headless true
 ```
 
-After deployment, test one short MP4 and one iPhone/Android MOV. Leave experimental
-viewpoint analysis off for the first run, confirm the heuristic score and JSON
-download, then repeat with the experimental checkbox if desired. Live Ridge and
-Random Forest output must remain unavailable.
+After deployment, test one short MP4 and one iPhone/Android MOV. First leave both
+experimental options off and confirm the heuristic score and JSON. Then enable the
+Ridge preview and confirm it appears separately with the unvalidated warning.
+Random Forest must remain unavailable.
 
 ## 4K performance
 

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import base64
 import hashlib
 import html
 import json
@@ -12,6 +13,10 @@ from pathlib import Path
 from typing import Any, Dict, List
 
 from video_suitability.infer import analyze_video
+from video_suitability.ml.experimental_ridge import (
+    MODEL_SHA256 as EXPERIMENTAL_RIDGE_MODEL_SHA256,
+    attach_experimental_ridge_prediction,
+)
 from video_suitability.presentation import (
     component_rows,
     extract_problem_frames,
@@ -36,23 +41,61 @@ ALLOWED_VIDEO_SUFFIXES = {
     ".mpg",
     ".mpeg",
 }
-STREAMLIT_ML_IDENTITY = ("live_ml_disabled", "deployment_2026_11")
+STREAMLIT_ML_IDENTITY = ("random_forest_disabled", "deployment_2026_11")
 
 
 def _disabled_registration_prediction() -> Dict[str, Any]:
-    """Return the explicit cloud policy without invoking either ML extractor."""
+    """Return the unchanged Random Forest cloud policy."""
 
     return {
         "status": "unavailable",
         "reason": (
-            "Live Random Forest and Ridge inference are disabled: no saved artifact "
-            "has passed the required input-feature parity checks for uploaded videos."
+            "Live Random Forest inference remains disabled because no saved artifact "
+            "has passed its production input-feature parity gates."
         ),
         "trained_model_used": False,
         "colmap_run": False,
         "affects_suitability_score": False,
         "affects_viewpoint_diversity": False,
     }
+
+
+def _not_requested_experimental_ridge() -> Dict[str, Any]:
+    return {
+        "status": "not_requested",
+        "reason": "Enable the opt-in experimental ML panel to run this estimate.",
+        "trained_model_used": False,
+        "colmap_run": False,
+        "affects_suitability_score": False,
+        "affects_viewpoint_diversity": False,
+        "experimental": True,
+        "independently_validated": False,
+    }
+
+
+def _streamlit_ridge_model_bytes(st: Any) -> Any:
+    """Decode the optional cloud secret; integrity is checked before joblib loads it."""
+
+    try:
+        encoded = st.secrets.get("EXPERIMENTAL_RIDGE_ARTIFACT_B64")
+    except Exception:
+        encoded = None
+    if not encoded:
+        return None
+    try:
+        return base64.b64decode(str(encoded), validate=True)
+    except Exception:
+        # The prediction module will safely report the absent/invalid artifact. Do not
+        # expose secret contents or decoding internals to ordinary users.
+        return b"invalid-secret"
+
+
+def _ridge_cache_identity(enabled: bool, model_bytes: Any) -> Any:
+    if not enabled:
+        return ("experimental_ridge", "not_requested")
+    if model_bytes is not None:
+        return ("experimental_ridge", hashlib.sha256(model_bytes).hexdigest())
+    return ("experimental_ridge", "local", EXPERIMENTAL_RIDGE_MODEL_SHA256)
 
 
 APP_CSS = """
@@ -388,6 +431,47 @@ def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
         )
 
 
+def _experimental_ridge_prediction(st: Any, report: Dict[str, Any]) -> None:
+    prediction = report.get("experimental_ridge_prediction") or {}
+    status = prediction.get("status", "not_requested")
+    if status == "available":
+        percentage = float(prediction["predicted_registration_percentage"])
+        clipped_note = (
+            " The raw regression output was clipped to the 0–100% display range."
+            if prediction.get("prediction_was_clipped")
+            else ""
+        )
+        st.markdown(
+            f"""
+            <div class="registration-panel">
+              <div class="eyebrow">Opt-in research preview · does not change either analyzer</div>
+              <h3>Experimental ML Registration Estimate</h3>
+              <div class="registration-value">{percentage:.1f}%</div>
+              <p>Estimated COLMAP image-registration percentage from the historical Ridge model.{clipped_note}</p>
+              <p><strong>Unvalidated live adapter:</strong> uploaded-video preprocessing has not been proven equivalent to the historical CO3D training inputs. No independent held-out evaluation was completed.</p>
+              <p>This is not a guarantee of reconstruction quality, object coverage or a successful 3D model.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+    elif status == "not_requested":
+        st.caption(
+            "Experimental ML Registration Estimate was not requested. The heuristic result does not depend on it."
+        )
+    else:
+        st.markdown(
+            f"""
+            <div class="registration-panel">
+              <div class="eyebrow">Experimental ML unavailable</div>
+              <h3>Experimental ML Registration Estimate</h3>
+              <p>{html.escape(str(prediction.get('reason') or 'The optional estimate could not be produced.'))}</p>
+              <p>The heuristic and geometric results remain valid and unchanged.</p>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+
 def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
     st.subheader("Problem timeline")
     if not rows:
@@ -455,6 +539,9 @@ def _analyze_upload_payload(
     object_bbox: Any = None,
     registration_artifact_dir: Any = None,
     include_viewpoint_diversity: bool = True,
+    include_experimental_ridge: bool = False,
+    experimental_ridge_artifact_dir: Any = None,
+    experimental_ridge_model_bytes: Any = None,
 ) -> Dict[str, Any]:
     """Pure upload-to-result path shared by Streamlit and performance benchmarks."""
 
@@ -485,6 +572,22 @@ def _analyze_upload_payload(
             include_viewpoint_diversity=include_viewpoint_diversity,
         )
         report["registration_prediction"] = _disabled_registration_prediction()
+        report["experimental_ridge_prediction"] = _not_requested_experimental_ridge()
+        if include_experimental_ridge:
+            try:
+                report = attach_experimental_ridge_prediction(
+                    report,
+                    Path(temporary_path),
+                    artifact_directory=experimental_ridge_artifact_dir,
+                    model_bytes=experimental_ridge_model_bytes,
+                )
+            except Exception:
+                # Optional research inference must never invalidate the main report.
+                report["experimental_ridge_prediction"] = {
+                    **_not_requested_experimental_ridge(),
+                    "status": "unavailable",
+                    "reason": "The optional Ridge inference path failed safely.",
+                }
         rows = timeline_rows(report)
         return {
             "filename": filename,
@@ -516,10 +619,15 @@ def _run_uploaded_analysis(
     upload: Any,
     object_bbox: Any = None,
     include_viewpoint_diversity: bool = True,
+    include_experimental_ridge: bool = False,
+    experimental_ridge_model_bytes: Any = None,
 ) -> Dict[str, Any]:
     buffer = upload.getbuffer()
     digest = hashlib.sha256(buffer).hexdigest()
     normalized_bbox = tuple(object_bbox) if object_bbox is not None else None
+    ridge_identity = _ridge_cache_identity(
+        include_experimental_ridge, experimental_ridge_model_bytes
+    )
     cached = st.session_state.get("video_analysis_cache")
     if (
         cached
@@ -528,6 +636,7 @@ def _run_uploaded_analysis(
         and cached.get("include_viewpoint_diversity")
         == include_viewpoint_diversity
         and cached.get("registration_artifact_identity") == STREAMLIT_ML_IDENTITY
+        and cached.get("experimental_ridge_identity") == ridge_identity
     ):
         return cached
     with st.spinner("Sampling the full timeline and checking quality, overlap and motion…"):
@@ -536,6 +645,8 @@ def _run_uploaded_analysis(
             upload.name,
             object_bbox=object_bbox,
             include_viewpoint_diversity=include_viewpoint_diversity,
+            include_experimental_ridge=include_experimental_ridge,
+            experimental_ridge_model_bytes=experimental_ridge_model_bytes,
         )
     cached = {
         **result,
@@ -543,6 +654,7 @@ def _run_uploaded_analysis(
         "object_bbox": normalized_bbox,
         "include_viewpoint_diversity": include_viewpoint_diversity,
         "registration_artifact_identity": STREAMLIT_ML_IDENTITY,
+        "experimental_ridge_identity": ridge_identity,
     }
     st.session_state["video_analysis_cache"] = cached
     return cached
@@ -666,6 +778,7 @@ def _analysis_view(st: Any) -> None:
     upload_size_mb = len(upload.getbuffer()) / (1024 * 1024)
     st.caption(f"Selected: {upload.name} · {upload_size_mb:.1f} MB")
     include_viewpoint_diversity = False
+    include_experimental_ridge = False
     use_object_box = False
     object_bbox = None
     with st.expander("Advanced viewpoint analysis", expanded=False):
@@ -739,6 +852,28 @@ def _analysis_view(st: Any) -> None:
                             )
                         except Exception:
                             st.image(preview, use_container_width=True)
+    with st.expander("Experimental ML Registration Estimate", expanded=False):
+        st.warning(
+            "Research/demo mode only. The Ridge model achieved grouped-CV MAE 19.62 percentage points on historical experiments, but it had no independent held-out evaluation. The new uploaded-video adapter is not proven equivalent to the CO3D training-input pipeline."
+        )
+        include_experimental_ridge = st.checkbox(
+            "Run the unvalidated experimental Ridge estimate",
+            value=False,
+            key="experimental_ridge_enabled",
+            help=(
+                "Adds separate CPU processing. It cannot change the heuristic score or "
+                "experimental viewpoint category and does not run COLMAP."
+            ),
+        )
+        st.caption(
+            "The result estimates historical COLMAP image registration, not guaranteed reconstruction quality or surface coverage."
+        )
+    experimental_ridge_model_bytes = (
+        _streamlit_ridge_model_bytes(st) if include_experimental_ridge else None
+    )
+    ridge_identity = _ridge_cache_identity(
+        include_experimental_ridge, experimental_ridge_model_bytes
+    )
     buffer_digest = hashlib.sha256(upload.getbuffer()).hexdigest()
     bbox_key = tuple(object_bbox) if object_bbox is not None else None
     existing = st.session_state.get("video_analysis_cache")
@@ -750,6 +885,7 @@ def _analysis_view(st: Any) -> None:
         == include_viewpoint_diversity
         and existing.get("registration_artifact_identity")
         == STREAMLIT_ML_IDENTITY
+        and existing.get("experimental_ridge_identity") == ridge_identity
     )
     analyze_clicked = st.button(
         "Analyze video",
@@ -765,6 +901,8 @@ def _analysis_view(st: Any) -> None:
             upload,
             object_bbox=object_bbox,
             include_viewpoint_diversity=include_viewpoint_diversity,
+            include_experimental_ridge=include_experimental_ridge,
+            experimental_ridge_model_bytes=experimental_ridge_model_bytes,
         )
     except Exception as exc:
         st.error(_friendly_analysis_error(exc))
@@ -784,6 +922,7 @@ def _analysis_view(st: Any) -> None:
             "This category is intentionally separate and cannot change the suitability score.",
         )
         _viewpoint_diversity(st, report)
+        _experimental_ridge_prediction(st, report)
         _registration_prediction(st, report)
         _uncertainty(st, report)
     with problems:
@@ -820,6 +959,9 @@ def _analysis_view(st: Any) -> None:
                         "registration_prediction": report.get(
                             "registration_prediction", {}
                         ).get("performance_profile"),
+                        "experimental_ridge_prediction": report.get(
+                            "experimental_ridge_prediction", {}
+                        ).get("performance_profile"),
                         "diagnostic_rendering": st.session_state.get(
                             "problem_frame_cache", {}
                         ).get("render_wall_seconds"),
@@ -840,7 +982,7 @@ def _evaluation_view(st: Any) -> None:
         st,
         "Research evidence",
         "Offline experimental ML comparison",
-        "Historical experiments are shown for transparency and are not used for live predictions.",
+        "Historical experiments are shown for transparency. Live Ridge inference is available only as an explicitly unvalidated opt-in preview.",
     )
     first, second, third = st.columns(3)
     first.metric("Best offline model", "Ridge")
@@ -849,9 +991,9 @@ def _evaluation_view(st: Any) -> None:
     st.markdown(
         """
         <div class="registration-panel">
-          <div class="eyebrow">Live ML unavailable</div>
-          <h3>Offline evidence only</h3>
-          <p>No independent held-out evaluation was completed, and historical preprocessing has not been proven identical to the live video path. Ridge and Random Forest predictions therefore remain disabled.</p>
+          <div class="eyebrow">Experimental live adapter available</div>
+          <h3>Evidence remains limited</h3>
+          <p>No independent held-out evaluation was completed, and uploaded-video preprocessing has not been proven equivalent to the historical CO3D training-input path. Ridge is therefore opt-in research/demo output only; Random Forest remains disabled.</p>
           <p>Predicted image-registration percentage would not guarantee successful 3D reconstruction.</p>
         </div>
         """,
@@ -943,7 +1085,9 @@ def main() -> None:
     try:
         import streamlit as st
     except ImportError as exc:  # pragma: no cover
-        raise RuntimeError("Install the UI extra with `python -m pip install -e '.[ui]'`.") from exc
+        raise RuntimeError(
+            "Install the app extra with `python -m pip install -e '.[app-ml]'`."
+        ) from exc
     st.set_page_config(
         page_title="3D Capture Check", page_icon="◈", layout="wide", initial_sidebar_state="collapsed"
     )
