@@ -108,20 +108,27 @@ def test_regression_output_is_clipped_without_changing_raw_value():
     assert diagnostic["object_geometry_verified"] is False
 
 
-def test_streamlit_ridge_panel_prominently_discloses_independent_errors_and_clipping():
+def test_streamlit_ridge_panel_is_retired_and_never_displays_live_percentage():
     class FakeStreamlit:
         def __init__(self):
-            self.warnings = []
-            self.errors = []
             self.markdown_blocks = []
 
-        def warning(self, value):
-            self.warnings.append(value)
-
-        def error(self, value):
-            self.errors.append(value)
-
         def markdown(self, value, **_kwargs):
+            self.markdown_blocks.append(value)
+
+        def expander(self, *_args, **_kwargs):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def dataframe(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, value):
             self.markdown_blocks.append(value)
 
     st = FakeStreamlit()
@@ -137,11 +144,12 @@ def test_streamlit_ridge_panel_prominently_discloses_independent_errors_and_clip
         },
     )
 
-    rendered = " ".join(st.warnings + st.errors + st.markdown_blocks)
-    assert "MAE 58.74 percentage points" in rendered
-    assert "clipped output ceiling" in rendered
-    assert "not 100% confidence" in rendered
-    assert "not proof of object geometry" in rendered
+    rendered = " ".join(st.markdown_blocks)
+    assert "Retired ML Experiment — Registration Predictor" in rendered
+    assert "58.743399 percentage points" in rendered
+    assert "No live prediction is run" in rendered
+    assert "130.0" not in rendered
+    assert "100.0%" not in rendered
 
 
 def test_missing_artifact_fails_gracefully(tmp_path):

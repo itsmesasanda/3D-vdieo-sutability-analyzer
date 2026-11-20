@@ -49,6 +49,14 @@ def test_report_to_timeline_recommendations_and_representative_frames(
     assert _sha256(video) == before
 
 
+def test_timeline_csv_preserves_diagnostic_status_and_timestamps(analysis_reports):
+    rows = timeline_rows(analysis_reports["blurry"])
+    payload = app._timeline_csv(rows)
+    assert "diagnostic_status" in payload.splitlines()[0]
+    assert "start_time_seconds" in payload.splitlines()[0]
+    assert "suspected" in payload
+
+
 def test_component_and_score_view_models_are_bounded(analysis_reports):
     rows = component_rows(analysis_reports["smooth_orbit"])
     assert len(rows) == 5
@@ -75,7 +83,7 @@ def test_human_evaluation_preserves_missing_numerical_scores():
     ] is None
 
 
-def test_score_panel_renders_current_and_baseline_without_streamlit_dependency(
+def test_score_panel_separates_technical_score_from_geometric_readiness(
     analysis_reports,
 ):
     class FakeStreamlit:
@@ -89,9 +97,10 @@ def test_score_panel_renders_current_and_baseline_without_streamlit_dependency(
     report = analysis_reports["smooth_orbit"]
     app._score_panel(fake, report)
     assert f"{report['overall_score']:.0f}" in fake.markup
-    assert f"{report['baseline_v1']['overall_score']:.2f}" in fake.markup
-    assert "success probability" in fake.markup
-    assert "geometric readiness unverified" in fake.markup
+    assert "Technical evidence score" in fake.markup
+    assert "Geometric readiness" in fake.markup
+    assert "Not verified" in fake.markup
+    assert "reconstruction-success probability" in fake.markup
     assert "Likely suitable" not in fake.markup
 
 
@@ -102,12 +111,51 @@ def test_streamlit_app_renders_all_competition_views_without_exceptions():
     rendered = AppTest.from_file(str(Path(app.__file__))).run(timeout=20)
     assert len(rendered.exception) == 0
     assert [tab.label for tab in rendered.tabs] == [
-        "Analyze a video",
-        "Evaluation evidence",
-        "How it works",
+        "Analyzer",
+        "Research archive",
+        "Method & limitations",
     ]
     assert len(rendered.get("file_uploader")) == 1
     assert len(rendered.get("metric")) >= 3
+
+
+def test_retired_ml_panel_never_renders_a_live_prediction():
+    class FakeStreamlit:
+        def __init__(self):
+            self.markup = ""
+
+        def markdown(self, value, **_kwargs):
+            self.markup += str(value)
+
+        def expander(self, *_args, **_kwargs):
+            return self
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *_args):
+            return False
+
+        def dataframe(self, *_args, **_kwargs):
+            return None
+
+        def caption(self, value):
+            self.markup += str(value)
+
+    fake = FakeStreamlit()
+    app._experimental_ridge_prediction(
+        fake,
+        {
+            "experimental_ridge_prediction": {
+                "status": "available",
+                "predicted_registration_percentage": 99.9,
+            }
+        },
+    )
+    assert "Retired ML Experiment — Registration Predictor" in fake.markup
+    assert "58.743399" in fake.markup
+    assert "No live prediction is run" in fake.markup
+    assert "99.9" not in fake.markup
 
 
 class _ViewpointRendererStub:

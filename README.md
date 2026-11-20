@@ -358,16 +358,19 @@ python -m pip install -e ".[app-ml]"
 streamlit run app.py
 ```
 
-Open the printed local URL (normally `http://localhost:8501`). The competition MVP
+Open the printed local URL (normally `http://localhost:8501`). The dark dashboard
 provides:
 
-- a prominent 0–100 score, suitability band, v1 comparison, five explained
-  components, and confidence/uncertainty banner;
+- a prominent 0–100 **technical evidence score** beside a separate **Geometric
+  readiness: Not verified** state, without presenting either as reconstruction
+  success probability;
+- direct image-quality proxies first, followed by clearly identified indirect
+  image-space feature, overlap and path evidence;
 - a separate Estimated Viewpoint Diversity panel with Low/Moderate/High/Unknown,
   evidence counts, limitations, and actionable capture guidance when the optional
   experimental checkbox is enabled;
-- a separate opt-in Experimental ML Registration Estimate with prominent
-  domain-shift and missing-held-out-validation warnings;
+- a final **Retired ML Experiment — Registration Predictor** panel documenting the
+  four-video 58.743399 percentage-point MAE result; no live Ridge percentage runs;
 - optional middle-frame object selection, tracked object-only viewpoint evidence,
   background-contamination diagnostics, and a clear Unknown reason on track loss;
 - conservative capture-completeness guidance, with higher/lower views explicitly
@@ -375,7 +378,8 @@ provides:
 - a filterable timestamped problem timeline and representative problem frames;
 - what/where/why/action guidance for blur, exposure, overlap, tracking, shake,
   excessive motion, weak viewpoint change, and other detected issues;
-- technical gates, warnings, complete JSON, and report download;
+- technical gates, warnings, provenance, complete JSON, timeline CSV, and report
+  downloads behind progressive disclosure;
 - a preserved v1/v2/human-feedback evaluation view that explicitly avoids accuracy
   claims and keeps missing human numbers missing.
 
@@ -409,11 +413,12 @@ cannot abort or change the main score. Uploaded bytes are rejected above 150 MB,
 written to a unique temporary file, and removed in a `finally` block. The analyzer
 retains at most 32 downscaled analysis samples by default.
 
-The Streamlit interface uses a responsive light dashboard with mobile breakpoints at
-780 px and 460 px. Advanced viewpoint controls and object-region selection are kept
-inside a separate expander. Optional viewpoint metrics are nullable: missing
+The Streamlit interface uses a responsive near-black dashboard with restrained cyan
+and violet accents and mobile breakpoints at 780 px and 460 px. Advanced viewpoint
+controls and object-region selection are kept inside a separate expander. Optional viewpoint metrics are nullable: missing
 geometric evidence is displayed as `Not available`, never silently converted to
-zero, and a presentation-schema mismatch cannot break the heuristic result.
+zero, and a presentation-schema mismatch cannot break the heuristic result. See the
+[final UI redesign report](docs/final_streamlit_ui_redesign.md).
 
 Local preflight:
 
@@ -424,11 +429,11 @@ python -m pytest -q
 streamlit run app.py --server.headless true
 ```
 
-After deployment, test one short MP4 and one iPhone/Android MOV. First leave both
-experimental options off and confirm the heuristic score and JSON. Then enable the
-Ridge panel and confirm it states that live numeric inference is disabled after the
-four-video 58.74 pp MAE result. Preserved historical 100% outputs must be identified
-as clipped display ceilings, not confidence or guaranteed registration.
+After deployment, test one short MP4 and one iPhone/Android MOV. First leave
+experimental geometry off and confirm the heuristic score, timeline and downloads.
+Then enable geometry and confirm failures remain isolated. The final retired-ML
+section must state that live Ridge is disabled after the four-video 58.743399 pp MAE
+result and must never display a new prediction.
 Random Forest must remain unavailable.
 
 ## 4K performance

@@ -132,7 +132,7 @@ def test_live_adapter_is_exactly_equivalent_to_materialized_adapter_jpegs(tmp_pa
 
 def test_streamlit_labels_historical_ridge_as_experimental():
     app_source = (ROOT / "app.py").read_text(encoding="utf-8")
-    assert "Experimental ML Registration Estimate" in app_source
-    assert "not been proven equivalent" in app_source
-    assert "58.74 percentage-point MAE" in app_source
-    assert "clipped regression ceiling" in app_source
+    assert "Retired ML Experiment — Registration Predictor" in app_source
+    assert "58.743399 percentage points" in app_source
+    assert "No live prediction is run" in app_source
+    assert "Converting the same inaccurate percentages into categories" in app_source

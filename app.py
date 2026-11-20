@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import base64
+import csv
 import hashlib
 import html
+import io
 import json
 import os
 import tempfile
@@ -25,7 +27,6 @@ from video_suitability.presentation import (
     load_evaluation_rows,
     recommendation_cards,
     registration_prediction_view,
-    score_style,
     timeline_rows,
     viewpoint_diversity_view,
 )
@@ -126,87 +127,111 @@ def _ridge_cache_identity(enabled: bool, model_bytes: Any) -> Any:
 APP_CSS = """
 <style>
   :root {
-    --ink:#18212f; --muted:#5d6978; --line:#e4e8ee; --surface:#ffffff;
-    --canvas:#f5f7fa; --coral:#e85f57; --coral-dark:#c84641; --coral-soft:#fff2f0;
-    --green:#237a62; --amber:#a86816; --shadow:0 10px 30px rgba(24,33,47,.07);
+    --bg:#050812; --bg-soft:#080d19; --surface:#0d1526; --surface-2:#111c31;
+    --surface-3:#162239; --line:rgba(148,163,184,.18); --line-strong:rgba(34,211,238,.32);
+    --ink:#edf7ff; --muted:#93a4bb; --cyan:#22d3ee; --cyan-soft:rgba(34,211,238,.10);
+    --violet:#8b5cf6; --violet-soft:rgba(139,92,246,.12); --green:#34d399;
+    --amber:#fbbf24; --red:#fb7185; --shadow:0 18px 50px rgba(0,0,0,.28);
   }
   html, body, [class*="css"] { color:var(--ink); }
-  .stApp { background:var(--canvas); color:var(--ink); }
-  .block-container { max-width:1200px; padding-top:1.4rem; padding-bottom:4rem; }
-  [data-testid="stHeader"] { background:rgba(245,247,250,.94); }
+  .stApp { background:var(--bg); color:var(--ink); }
+  .stApp:before { content:""; position:fixed; inset:0; pointer-events:none; opacity:.13;
+    background-image:linear-gradient(rgba(34,211,238,.12) 1px,transparent 1px),linear-gradient(90deg,rgba(34,211,238,.12) 1px,transparent 1px);
+    background-size:48px 48px; mask-image:linear-gradient(to bottom,black,transparent 68%); }
+  .block-container { max-width:1180px; padding-top:1.2rem; padding-bottom:4rem; }
+  [data-testid="stHeader"] { background:rgba(5,8,18,.88); }
   h1, h2, h3, h4, p, label, .stMarkdown { color:var(--ink); }
-  .mvp-hero { position:relative; overflow:hidden; padding:2rem 2.1rem; border:1px solid var(--line); border-radius:22px; background:var(--surface); box-shadow:var(--shadow); margin-bottom:1.25rem; }
-  .mvp-hero:before { content:""; position:absolute; inset:0 auto 0 0; width:7px; background:linear-gradient(180deg,var(--coral),#f3a071); }
-  .mvp-kicker { color:var(--coral-dark); font-size:.72rem; letter-spacing:.14em; text-transform:uppercase; font-weight:800; }
-  .mvp-hero h1 { color:var(--ink); margin:.4rem 0 .55rem; font-size:clamp(2rem,4vw,3.1rem); line-height:1.04; letter-spacing:-.035em; }
-  .mvp-hero p { color:var(--muted); max-width:780px; margin:0; font-size:1.02rem; line-height:1.6; }
-  .method-chip { display:inline-flex; align-items:center; margin-top:1rem; padding:.38rem .72rem; border-radius:999px; background:var(--coral-soft); color:#913c38; border:1px solid #ffd9d5; font-size:.76rem; font-weight:700; }
+  .mvp-hero { position:relative; overflow:hidden; display:flex; align-items:center; gap:1.15rem; padding:1.35rem 1.5rem; border:1px solid var(--line); border-radius:20px; background:rgba(13,21,38,.92); box-shadow:var(--shadow); margin-bottom:1rem; }
+  .mvp-hero:after { content:""; position:absolute; width:260px; height:260px; border:1px solid rgba(139,92,246,.20); border-radius:50%; right:-125px; top:-155px; }
+  .scan-logo { width:54px; height:54px; flex:0 0 54px; border:1px solid var(--line-strong); border-radius:15px; display:grid; place-items:center; background:var(--cyan-soft); color:var(--cyan); font-size:1.7rem; box-shadow:inset 0 0 22px rgba(34,211,238,.06); }
+  .mvp-kicker { color:var(--cyan); font-size:.68rem; letter-spacing:.16em; text-transform:uppercase; font-weight:800; }
+  .mvp-hero h1 { margin:.2rem 0 .25rem; font-size:clamp(1.75rem,3.4vw,2.55rem); line-height:1.08; letter-spacing:-.035em; }
+  .mvp-hero p { color:var(--muted); margin:0; font-size:.98rem; }
   .section-heading { margin:1.65rem 0 .75rem; }
   .section-heading .eyebrow { margin-bottom:.2rem; }
   .section-heading h2 { margin:0; font-size:1.45rem; letter-spacing:-.02em; }
   .section-heading p { margin:.3rem 0 0; color:var(--muted); }
-  .upload-intro { padding:1rem 1.1rem; margin:.2rem 0 .75rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); color:var(--muted); }
+  .upload-intro { padding:.85rem 1rem; margin:.2rem 0 .75rem; border-radius:13px; background:var(--surface); border:1px solid var(--line); color:var(--muted); }
   .upload-intro strong { color:var(--ink); }
-  .score-panel { display:flex; align-items:center; gap:1.6rem; padding:1.5rem; border-radius:20px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
-  .score-ring { width:142px; height:142px; border-radius:50%; display:grid; place-items:center; position:relative; flex:0 0 auto; }
-  .score-ring:before { content:""; position:absolute; inset:11px; background:white; border-radius:50%; }
+  .selected-file { display:flex; justify-content:space-between; gap:1rem; align-items:center; padding:.8rem 1rem; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--muted); margin:.65rem 0; }
+  .selected-file strong { color:var(--ink); }
+  .result-summary { display:grid; grid-template-columns:minmax(0,1.55fr) minmax(250px,.8fr); gap:.8rem; }
+  .score-panel, .readiness-panel { min-height:190px; padding:1.35rem; border-radius:18px; background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+  .score-panel { display:flex; align-items:center; gap:1.35rem; }
+  .readiness-panel { display:flex; flex-direction:column; justify-content:center; border-color:rgba(139,92,246,.32); background:linear-gradient(145deg,var(--surface),rgba(139,92,246,.08)); }
+  .readiness-value { font-size:1.8rem; font-weight:800; margin:.35rem 0; color:#c4b5fd; }
+  .score-ring { width:128px; height:128px; border-radius:50%; display:grid; place-items:center; position:relative; flex:0 0 auto; }
+  .score-ring:before { content:""; position:absolute; inset:10px; background:var(--surface); border-radius:50%; }
   .score-number { position:relative; z-index:2; font-size:2.45rem; font-weight:850; color:var(--ink); line-height:.9; }
   .score-number small { display:block; font-size:.72rem; color:var(--muted); font-weight:700; text-align:center; margin-top:.4rem; }
-  .score-copy h2 { margin:.18rem 0 .35rem; color:var(--ink); font-size:1.65rem; }
+  .score-copy h2 { margin:.18rem 0 .35rem; color:var(--ink); font-size:1.5rem; }
   .score-copy p { margin:.2rem 0; color:var(--muted); line-height:1.5; }
-  .component-card { min-height:118px; padding:1rem; border-radius:15px; background:var(--surface); border:1px solid var(--line); box-shadow:0 5px 16px rgba(24,33,47,.04); margin-bottom:.45rem; }
-  .component-card .label { font-size:.78rem; color:var(--muted); min-height:2.35rem; font-weight:650; }
+  .component-card { min-height:122px; padding:1rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); margin-bottom:.45rem; }
+  .component-card.direct { border-color:rgba(34,211,238,.25); }
+  .component-card.indirect { border-color:rgba(139,92,246,.24); }
+  .component-card .label { font-size:.78rem; color:var(--muted); min-height:2rem; font-weight:650; }
   .component-card .value { font-size:1.7rem; font-weight:800; color:var(--ink); }
-  .attention-card { height:100%; padding:1rem; border-radius:14px; background:#fff9f8; border:1px solid #f4d5d2; }
-  .attention-card h4 { margin:0 0 .35rem; color:#7e302d; font-size:.95rem; }
-  .attention-card p { margin:0; color:#674c4a; font-size:.86rem; line-height:1.45; }
-  .viewpoint-panel { margin-top:.35rem; padding:1.25rem 1.35rem; border-radius:18px; background:var(--surface); border:1px solid #ead8d6; border-left:5px solid var(--coral); box-shadow:0 7px 22px rgba(24,33,47,.05); }
+  .attention-card { height:100%; padding:1rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); }
+  .attention-card.detected { border-color:rgba(251,113,133,.42); }
+  .attention-card.suspected { border-color:rgba(251,191,36,.38); }
+  .attention-card.not_measurable { border-color:rgba(148,163,184,.28); }
+  .attention-card h4 { margin:0 0 .35rem; color:var(--ink); font-size:.95rem; }
+  .attention-card p { margin:0; color:var(--muted); font-size:.86rem; line-height:1.45; }
+  .status-pill { display:inline-block; padding:.2rem .5rem; border-radius:999px; background:var(--surface-3); color:var(--muted); font-size:.68rem; font-weight:800; text-transform:uppercase; letter-spacing:.06em; margin-bottom:.45rem; }
+  .detected .status-pill { color:#fecdd3; background:rgba(251,113,133,.12); }
+  .suspected .status-pill { color:#fde68a; background:rgba(251,191,36,.12); }
+  .viewpoint-panel { margin-top:.45rem; padding:1.2rem 1.3rem; border-radius:17px; background:var(--surface); border:1px solid rgba(139,92,246,.30); box-shadow:var(--shadow); }
   .viewpoint-label { display:inline-block; padding:.28rem .68rem; border-radius:999px; color:white; font-size:.75rem; font-weight:800; letter-spacing:.03em; vertical-align:middle; }
   .viewpoint-panel h3 { margin:.5rem 0 .3rem; color:var(--ink); }
   .viewpoint-panel p { margin:.3rem 0; color:var(--muted); line-height:1.5; }
   .evidence-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:.55rem; margin-top:.9rem; }
-  .evidence-item { padding:.7rem; border-radius:11px; background:#f8f9fb; border:1px solid #eceff3; }
+  .evidence-item { padding:.7rem; border-radius:11px; background:var(--surface-2); border:1px solid var(--line); }
   .evidence-item span { display:block; color:var(--muted); font-size:.7rem; line-height:1.25; }
   .evidence-item strong { display:block; color:var(--ink); font-size:1.05rem; margin-top:.18rem; }
-  .registration-panel { margin-top:1rem; padding:1.05rem 1.2rem; border-radius:15px; background:#f8f9fb; border:1px solid var(--line); }
+  .registration-panel { margin-top:1rem; padding:1.05rem 1.2rem; border-radius:15px; background:var(--surface); border:1px solid var(--line); }
+  .retired-panel { border-color:rgba(251,113,133,.34); background:linear-gradient(145deg,var(--surface),rgba(251,113,133,.04)); }
   .registration-panel h3 { margin:.35rem 0; color:var(--ink); }
   .registration-panel p { margin:.25rem 0; color:var(--muted); }
-  .registration-value { font-size:2rem; font-weight:800; color:#294b7a; }
+  .registration-value { font-size:2rem; font-weight:800; color:var(--cyan); }
   .timeline-row { position:relative; padding:.9rem 1rem .82rem; background:var(--surface); border:1px solid var(--line); border-radius:13px; margin:.5rem 0; overflow:hidden; }
   .timeline-row strong { color:var(--ink); }
   .timeline-meta { color:var(--muted); font-size:.82rem; }
-  .timeline-track { height:6px; background:#edf0f4; border-radius:9px; margin-top:.65rem; position:relative; overflow:hidden; }
-  .timeline-span { position:absolute; height:100%; min-width:5px; border-radius:9px; background:linear-gradient(90deg,#f09a68,var(--coral)); }
-  .recommendation { border-left:4px solid var(--coral); padding:.9rem 1rem; background:var(--surface); border-radius:0 13px 13px 0; border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); margin:.6rem 0; }
+  .timeline-track { height:5px; background:var(--surface-3); border-radius:9px; margin-top:.65rem; position:relative; overflow:hidden; }
+  .timeline-span { position:absolute; height:100%; min-width:5px; border-radius:9px; background:var(--cyan); }
+  .recommendation { border-left:3px solid var(--cyan); padding:.9rem 1rem; background:var(--surface); border-radius:0 13px 13px 0; border-top:1px solid var(--line); border-right:1px solid var(--line); border-bottom:1px solid var(--line); margin:.6rem 0; }
   .recommendation h4 { margin:0 0 .35rem; color:var(--ink); }
   .recommendation p { margin:.24rem 0; color:var(--muted); font-size:.9rem; }
-  .eyebrow { color:var(--coral-dark); font-weight:800; letter-spacing:.09em; text-transform:uppercase; font-size:.7rem; }
-  .disclaimer { padding:.9rem 1rem; background:#fff8e9; border:1px solid #ead7a7; border-radius:12px; color:#634f20; }
+  .eyebrow { color:var(--cyan); font-weight:800; letter-spacing:.1em; text-transform:uppercase; font-size:.68rem; }
+  .disclaimer { padding:.9rem 1rem; background:rgba(251,191,36,.08); border:1px solid rgba(251,191,36,.28); border-radius:12px; color:#fde68a; }
   .step-card { min-height:112px; padding:1rem; border-radius:14px; background:var(--surface); border:1px solid var(--line); }
-  .step-number { color:var(--coral-dark); font-size:.72rem; font-weight:850; letter-spacing:.08em; }
+  .step-number { color:var(--cyan); font-size:.72rem; font-weight:850; letter-spacing:.08em; }
   .step-card strong { display:block; margin:.3rem 0; color:var(--ink); }
   .step-card p { margin:0; color:var(--muted); font-size:.86rem; }
-  div[data-testid="stFileUploader"] { background:var(--surface); border-radius:18px; padding:.45rem; border:1px solid var(--line); box-shadow:var(--shadow); }
-  [data-testid="stFileUploaderDropzone"] { min-height:150px; background:#fffafa; border:2px dashed #e7aaa6; border-radius:14px; }
+  div[data-testid="stFileUploader"] { background:var(--surface); border-radius:18px; padding:.55rem; border:1px solid var(--line-strong); box-shadow:var(--shadow); }
+  [data-testid="stFileUploaderDropzone"] { min-height:220px; background:linear-gradient(145deg,var(--surface),rgba(34,211,238,.055)); border:1.5px dashed rgba(34,211,238,.52); border-radius:14px; }
   [data-testid="stFileUploaderDropzone"] * { color:var(--ink) !important; }
   [data-testid="stFileUploaderDropzone"] small { color:var(--muted) !important; }
   [data-testid="stCheckbox"] label p, [data-testid="stSlider"] label p, [data-testid="stWidgetLabel"] p { color:var(--ink) !important; font-weight:600; }
   [data-testid="stExpander"] { background:var(--surface); border:1px solid var(--line); border-radius:13px; overflow:hidden; }
   [data-testid="stExpander"] summary, [data-testid="stExpander"] summary p { color:var(--ink) !important; font-weight:700; }
-  .stTabs [data-baseweb="tab-list"] { gap:.35rem; background:#eef1f5; padding:.32rem; border-radius:12px; }
-  .stTabs [data-baseweb="tab"] { height:42px; border-radius:9px; color:#475466; font-weight:700; }
-  .stTabs [aria-selected="true"] { background:white !important; color:var(--ink) !important; box-shadow:0 2px 8px rgba(24,33,47,.08); }
-  .stTabs [data-baseweb="tab-highlight"] { background:var(--coral); }
+  .stTabs [data-baseweb="tab-list"] { gap:.3rem; background:var(--surface); padding:.28rem; border:1px solid var(--line); border-radius:12px; }
+  .stTabs [data-baseweb="tab"] { height:42px; border-radius:9px; color:var(--muted); font-weight:700; }
+  .stTabs [aria-selected="true"] { background:var(--surface-3) !important; color:var(--ink) !important; }
+  .stTabs [data-baseweb="tab-highlight"] { background:var(--cyan); }
   .stButton > button, .stDownloadButton > button { border-radius:10px; font-weight:750; min-height:44px; }
-  .stButton > button[kind="primary"] { background:var(--coral); border-color:var(--coral); color:white; }
-  .stButton > button[kind="primary"]:hover { background:var(--coral-dark); border-color:var(--coral-dark); }
-  [data-testid="stProgressBar"] > div > div { background:var(--coral); }
+  .stButton > button[kind="primary"] { background:var(--cyan); border-color:var(--cyan); color:#041017; }
+  .stButton > button[kind="primary"]:hover { background:#67e8f9; border-color:#67e8f9; color:#041017; }
+  [data-testid="stProgressBar"] > div { background:var(--surface-3); }
+  [data-testid="stProgressBar"] > div > div { background:linear-gradient(90deg,var(--cyan),var(--violet)); }
   [data-testid="stAlert"] { border-radius:12px; color:var(--ink); }
   [data-testid="stMetric"] { background:var(--surface); border:1px solid var(--line); border-radius:13px; padding:.8rem; }
+  [data-testid="stMetricLabel"], [data-testid="stMetricValue"] { color:var(--ink); }
+  [data-testid="stDataFrame"], [data-testid="stJson"] { border:1px solid var(--line); border-radius:12px; overflow:hidden; }
   @media (max-width: 780px) {
     .block-container { padding:1rem .75rem 3rem; }
-    .mvp-hero { padding:1.35rem 1.2rem; border-radius:17px; }
-    .mvp-hero h1 { font-size:2rem; }
+    .mvp-hero { padding:1.1rem; border-radius:17px; }
+    .mvp-hero h1 { font-size:1.8rem; }
+    .result-summary { grid-template-columns:1fr; }
     .score-panel { align-items:flex-start; gap:1rem; padding:1.1rem; }
     .score-ring { width:108px; height:108px; }
     .score-number { font-size:1.85rem; }
@@ -216,9 +241,11 @@ APP_CSS = """
     .stTabs [data-baseweb="tab"] { font-size:.78rem; padding-left:.55rem; padding-right:.55rem; }
   }
   @media (max-width: 460px) {
+    .scan-logo { width:44px; height:44px; flex-basis:44px; }
     .score-panel { flex-direction:column; }
     .evidence-grid { grid-template-columns:1fr; }
-    .method-chip { line-height:1.35; }
+    .selected-file { align-items:flex-start; flex-direction:column; }
+    [data-testid="stFileUploaderDropzone"] { min-height:180px; }
   }
 </style>
 """
@@ -228,10 +255,12 @@ def _hero(st: Any) -> None:
     st.markdown(
         """
         <section class="mvp-hero">
-          <div class="mvp-kicker">3D capture readiness</div>
-          <h1>Check your video before reconstruction</h1>
-          <p>Review image quality, feature continuity, view overlap and camera motion using a transparent, CPU-based analysis.</p>
-          <span class="method-chip">Explainable heuristic · temporary upload processing · no reconstruction claim</span>
+          <div class="scan-logo" aria-hidden="true">⌗</div>
+          <div>
+            <div class="mvp-kicker">Computer-vision capture check</div>
+            <h1>3D Capture Analyzer</h1>
+            <p>Evaluate video quality before 3D reconstruction.</p>
+          </div>
         </section>
         """,
         unsafe_allow_html=True,
@@ -278,13 +307,8 @@ def _friendly_analysis_error(exc: Exception) -> str:
 
 def _score_panel(st: Any, report: Dict[str, Any]) -> None:
     score = float(report["overall_score"])
-    style = score_style(score)
-    baseline = float(report["baseline_v1"]["overall_score"])
     revision = report.get("scoring_revision", "2.0")
     interpretation = report.get("result_interpretation", {})
-    headline = interpretation.get(
-        "headline", "Technical capture score — geometric readiness unverified"
-    )
     measures = interpretation.get(
         "score_measures",
         "The score summarizes sampled technical capture measurements.",
@@ -293,19 +317,34 @@ def _score_panel(st: Any, report: Dict[str, Any]) -> None:
         "score_does_not_measure",
         "It does not verify successful 3D reconstruction.",
     )
+    viewpoint = report.get("viewpoint_diversity", {}) or {}
+    viewpoint_label = str(viewpoint.get("label") or "Unknown")
+    viewpoint_status = str(viewpoint.get("evidence_status") or "insufficient")
+    geometry_note = (
+        f"Experimental image-view category: {viewpoint_label}. Physical camera "
+        "motion and object coverage remain unverified."
+        if viewpoint_status == "sufficient" and viewpoint_label != "Unknown"
+        else "The available image evidence is insufficient to verify geometric reconstruction readiness."
+    )
     st.markdown(
         f"""
-        <div class="score-panel">
-          <div class="score-ring" style="background:conic-gradient({style['color']} {score:.2f}%,#e8edec 0)">
-            <div class="score-number">{score:.0f}<small>out of 100</small></div>
+        <div class="result-summary">
+          <div class="score-panel">
+            <div class="score-ring" style="background:conic-gradient(var(--cyan) {score:.2f}%,var(--surface-3) 0)">
+              <div class="score-number">{score:.0f}<small>out of 100</small></div>
+            </div>
+            <div class="score-copy">
+              <div class="eyebrow">Technical capture quality · heuristic revision {html.escape(str(revision))}</div>
+              <h2>Technical evidence score</h2>
+              <p>{html.escape(str(measures))}</p>
+              <p>This score is <strong>not</strong> reconstruction-success probability.</p>
+            </div>
           </div>
-          <div class="score-copy">
-            <div class="eyebrow">Heuristic v2 · revision {revision}</div>
-            <h2>{html.escape(str(headline))}</h2>
-            <p>{html.escape(str(measures))}</p>
+          <div class="readiness-panel">
+            <div class="eyebrow">Geometric readiness</div>
+            <div class="readiness-value">Not verified</div>
+            <p>{html.escape(geometry_note)}</p>
             <p><strong>Not measured:</strong> {html.escape(str(does_not_measure))}</p>
-            <p>This is an evidence score, not a success probability.</p>
-            <p>Preserved v1 baseline: <strong>{baseline:.2f}</strong> · change: <strong>{score-baseline:+.2f}</strong></p>
           </div>
         </div>
         """,
@@ -314,18 +353,43 @@ def _score_panel(st: Any, report: Dict[str, Any]) -> None:
 
 
 def _components(st: Any, report: Dict[str, Any]) -> None:
+    rows = component_rows(report)
+    direct_labels = {
+        "Image detail proxy": "Sharpness / edge detail",
+        "Whole-frame exposure": "Lighting & exposure",
+    }
     _section_heading(
         st,
-        "Score breakdown",
-        "Five signals behind the result",
-        "Each metric is a measured heuristic component, not a success probability.",
+        "Direct measurements",
+        "Image quality",
+        "Measured image-quality proxies. They have not independently established reconstruction-success accuracy.",
     )
-    columns = st.columns(5)
-    for column, row in zip(columns, component_rows(report)):
+    columns = st.columns(2)
+    for column, row in zip(columns, rows[:2]):
         with column:
-            weight = f" · {row['weight_percent']}% weight" if row["weight_percent"] else ""
             st.markdown(
-                f"<div class='component-card'><div class='label'>{row['label']}{weight}</div>"
+                f"<div class='component-card direct'><div class='label'>{direct_labels.get(row['label'], row['label'])}</div>"
+                f"<div class='value'>{row['score']:.0f}</div></div>",
+                unsafe_allow_html=True,
+            )
+            st.progress(int(round(row["score"])))
+            st.caption(row["explanation"])
+    _section_heading(
+        st,
+        "Indirect image-space signals",
+        "Supporting computer-vision evidence",
+        "These measurements support diagnosis but do not prove camera translation, useful new viewpoints or object coverage.",
+    )
+    columns = st.columns(3)
+    indirect_labels = {
+        "Feature tracking": "Feature continuity / tracking",
+        "View overlap": "View overlap",
+        "Image-motion evidence": "Camera-path evidence",
+    }
+    for column, row in zip(columns, rows[2:]):
+        with column:
+            st.markdown(
+                f"<div class='component-card indirect'><div class='label'>{indirect_labels.get(row['label'], row['label'])}</div>"
                 f"<div class='value'>{row['score']:.0f}</div></div>",
                 unsafe_allow_html=True,
             )
@@ -343,17 +407,19 @@ def _attention_summary(st: Any, rows: List[Dict[str, Any]]) -> None:
     cards = recommendation_cards(rows)[:3]
     if not cards:
         st.success(
-            "No high-priority sampled problem was detected. Still verify that every required side of the object is visible."
+            "No high-priority sampled problem was detected. Geometric readiness may still be unverified."
         )
         return
     columns = st.columns(len(cards))
     for column, card in zip(columns, cards):
         with column:
+            status = str(card.get("diagnostic_status", "detected"))
+            status_class = status if status in {"detected", "suspected", "not_measurable"} else "suspected"
             st.markdown(
                 f"""
-                <div class="attention-card">
+                <div class="attention-card {status_class}">
+                  <div class="status-pill">{html.escape(status.replace('_', ' '))}</div>
                   <h4>{html.escape(card['label'])} · {html.escape(card['where'])}</h4>
-                  <div class="timeline-meta">{html.escape(str(card.get('diagnostic_status', 'detected')).replace('_', ' ').title())}</div>
                   <p>{html.escape(card['action'])}</p>
                 </div>
                 """,
@@ -549,60 +615,34 @@ def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
 
 
 def _experimental_ridge_prediction(st: Any, report: Dict[str, Any]) -> None:
-    prediction = report.get("experimental_ridge_prediction") or {}
-    status = prediction.get("status", "not_requested")
-    if status == "available":
-        percentage = float(prediction["predicted_registration_percentage"])
-        clipped_note = (
-            " The raw regression output was clipped to the 0–100% display range."
-            if prediction.get("prediction_was_clipped")
-            else ""
+    del report
+    st.markdown(
+        """
+        <div class="registration-panel retired-panel">
+          <div class="eyebrow">Disabled · unreliable on independent validation</div>
+          <h3>Retired ML Experiment — Registration Predictor</h3>
+          <p><strong>Historical model:</strong> Ridge Regression</p>
+          <p><strong>Independent validation:</strong> four uploaded videos · mean absolute error 58.743399 percentage points.</p>
+          <p>Three of four predictions overestimated registration by more than 60 percentage points. The historical features were insufficient for the uploaded-video domain.</p>
+          <p>No live prediction is run. Converting the same inaccurate percentages into categories would not repair predictive accuracy.</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    with st.expander("Historical prediction comparisons", expanded=False):
+        st.dataframe(
+            [
+                {"Video": "WhatsApp video", "Historical Ridge (%)": 100.000000, "COLMAP": "4 / 60", "Actual (%)": 6.666667},
+                {"Video": "front_only.mp4", "Historical Ridge (%)": 100.000000, "COLMAP": "60 / 60", "Actual (%)": 100.000000},
+                {"Video": "good_orbit.mp4", "Historical Ridge (%)": 84.750987, "COLMAP": "2 / 60", "Actual (%)": 3.333333},
+                {"Video": "waving_control.mp4", "Historical Ridge (%)": 63.555943, "COLMAP": "2 / 60", "Actual (%)": 3.333333},
+            ],
+            use_container_width=True,
+            hide_index=True,
         )
-        st.warning(
-            "Independent CPU COLMAP validation on four uploaded videos found "
-            "substantial Ridge errors (MAE 58.74 percentage points). Treat this "
-            "estimate as an unreliable research diagnostic, not a success forecast."
-        )
-        if prediction.get("prediction_was_clipped"):
-            st.error(
-                "The displayed 100% is a clipped output ceiling. It is not 100% "
-                "confidence and does not imply that COLMAP will register all frames "
-                "or produce useful object geometry."
-            )
-        st.markdown(
-            f"""
-            <div class="registration-panel">
-              <div class="eyebrow">Independent diagnostic found substantial errors · does not change either analyzer</div>
-              <h3>Experimental ML Registration Estimate</h3>
-              <div class="registration-value">{percentage:.1f}%</div>
-              <p>Estimated COLMAP image-registration percentage from the historical Ridge model.{clipped_note}</p>
-              <p><strong>Observed live-video limitation:</strong> a four-video independent CPU COLMAP diagnostic produced MAE 58.74 percentage points, including three overpredictions greater than 60 points. The uploaded-video policy has not been proven equivalent to the historical CO3D training inputs.</p>
-              <p>This small diagnostic is not a statistically sufficient accuracy evaluation. Registration itself is not proof of object geometry, reconstruction completeness, object coverage or a successful 3D model.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
-        )
-    elif status == "not_requested":
         st.caption(
-            "Live Experimental ML Registration Estimate is disabled after independent "
-            "validation found substantial errors. The heuristic result does not depend on it."
-        )
-    elif status == "abstained":
-        st.error(
-            "The experimental Ridge model abstained from a live numeric prediction. "
-            + str(prediction.get("reason") or "Live-domain reliability is insufficient.")
-        )
-    else:
-        st.markdown(
-            f"""
-            <div class="registration-panel">
-              <div class="eyebrow">Experimental ML unavailable</div>
-              <h3>Experimental ML Registration Estimate</h3>
-              <p>{html.escape(str(prediction.get('reason') or 'The optional estimate could not be produced.'))}</p>
-              <p>The heuristic and geometric results remain valid and unchanged.</p>
-            </div>
-            """,
-            unsafe_allow_html=True,
+            "This four-video diagnostic is too small to estimate general accuracy. "
+            "COLMAP image registration is not proof of object-centered geometry or reconstruction completeness."
         )
 
 
@@ -626,8 +666,9 @@ def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
         )
         st.markdown(
             f"""
-            <div class="timeline-row">
-              <strong>{html.escape(str(row['label']))}</strong><span class="timeline-meta"> · {row['time_range']} · {status}{severity}</span>
+            <div class="timeline-row {html.escape(str(row.get('diagnostic_status', 'detected')))}">
+              <span class="status-pill">{status}</span><br>
+              <strong>{html.escape(str(row['label']))}</strong><span class="timeline-meta"> · {row['time_range']}{severity}</span>
               <div class="timeline-meta">{row['what']}</div>
               <div class="timeline-meta">{html.escape(str(row.get('confidence_reason', '')))}</div>
               <div class="timeline-track"><span class="timeline-span" style="left:{row['start_percent']}%;width:{width}%"></span></div>
@@ -635,6 +676,19 @@ def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
             """,
             unsafe_allow_html=True,
         )
+
+
+def _timeline_csv(rows: List[Dict[str, Any]]) -> str:
+    """Serialize existing timeline diagnostics without changing their values."""
+
+    if not rows:
+        return ""
+    fieldnames = list(dict.fromkeys(key for row in rows for key in row))
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=fieldnames, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    return buffer.getvalue()
 
 
 def _frame_gallery(st: Any, frames: List[Dict[str, Any]]) -> None:
@@ -965,20 +1019,20 @@ def _run_uploaded_diagnostics(st: Any, upload: Any, rows: List[Dict[str, Any]]) 
 def _analysis_view(st: Any) -> None:
     _section_heading(
         st,
-        "New analysis",
-        "Upload an object capture",
-        "Use a short MP4 or MOV showing one mostly static object. The standard heuristic is always available; advanced geometry is optional.",
+        "New capture",
+        "Upload your object video",
+        "Use an MP4 or MOV showing one mostly static object. Experimental geometry is optional.",
     )
     st.markdown(
         f"""
         <div class="upload-intro">
-          <strong>Recommended:</strong> one slow continuous orbit, diffuse lighting, sharp focus and 60–80% overlap. Maximum upload size: {MAX_UPLOAD_MB} MB.
+          <strong>For a useful check:</strong> record slowly, keep the object mostly still, use even light, and preserve overlap. MP4/MOV · maximum {MAX_UPLOAD_MB} MB.
         </div>
         """,
         unsafe_allow_html=True,
     )
     upload = st.file_uploader(
-        "Upload or drop a video",
+        "Drop a video here or choose a file",
         type=["mp4", "mov", "avi", "mkv", "webm", "m4v", "mpg", "mpeg"],
         help=(
             f"For best evidence, record a slow orbit around one mostly static object. "
@@ -998,13 +1052,18 @@ def _analysis_view(st: Any) -> None:
             )
         return
     upload_size_mb = len(upload.getbuffer()) / (1024 * 1024)
-    st.caption(f"Selected: {upload.name} · {upload_size_mb:.1f} MB")
+    st.markdown(
+        f"<div class='selected-file'><span><strong>{html.escape(upload.name)}</strong></span><span>{upload_size_mb:.1f} MB · ready to analyze</span></div>",
+        unsafe_allow_html=True,
+    )
+    with st.expander("Preview selected video", expanded=False):
+        st.video(upload)
     include_viewpoint_diversity = False
     include_experimental_ridge = False
     use_object_box = False
     object_bbox = None
     show_foreground_preview = False
-    with st.expander("Advanced viewpoint analysis", expanded=False):
+    with st.expander("Advanced Settings · Experimental geometry", expanded=False):
         st.caption(
             "Experimental and separate from the suitability score. It adds long-gap geometric checks and may return Unknown when evidence is insufficient."
         )
@@ -1095,7 +1154,7 @@ def _analysis_view(st: Any) -> None:
                                 round((object_bbox[0] + object_bbox[2]) * width),
                                 round((object_bbox[1] + object_bbox[3]) * height),
                             )
-                            cv2.rectangle(annotated, start, end, (232, 95, 87), 4)
+                            cv2.rectangle(annotated, start, end, (238, 211, 34), 4)
                             st.image(
                                 annotated,
                                 caption="Exact object-tracker initialization frame and selected region.",
@@ -1146,28 +1205,7 @@ def _analysis_view(st: Any) -> None:
                                 st.caption(foreground_preview["note"])
                         except Exception:
                             st.image(preview, use_container_width=True)
-    with st.expander("Experimental ML Registration Estimate", expanded=False):
-        st.error(
-            "Independent live-video CPU COLMAP testing found substantial errors: "
-            "58.74 percentage-point MAE across four diagnostic videos. Three videos "
-            "were overpredicted by more than 60 points."
-        )
-        st.warning(
-            "Research/demo mode only. Historical grouped-CV MAE was 19.62 percentage "
-            "points, but it did not transfer reliably in this small live-video test. "
-            "The uploaded-video adapter is not proven equivalent to the CO3D training-input pipeline."
-        )
-        st.info(
-            "Live numeric Ridge inference is disabled. The original artifact and "
-            "offline validation path are preserved for research comparison."
-        )
-        include_experimental_ridge = False
-        st.caption(
-            "A displayed 100% may be a clipped regression ceiling. It is not certainty and does not guarantee frame registration, reconstruction quality or surface coverage."
-        )
-    experimental_ridge_model_bytes = (
-        _streamlit_ridge_model_bytes(st) if include_experimental_ridge else None
-    )
+    experimental_ridge_model_bytes = None
     ridge_identity = _ridge_cache_identity(
         include_experimental_ridge, experimental_ridge_model_bytes
     )
@@ -1216,15 +1254,19 @@ def _analysis_view(st: Any) -> None:
         _attention_summary(st, result["timeline"])
         _section_heading(
             st,
-            "Independent geometry",
-            "Experimental viewpoint evidence",
-            "This category is intentionally separate and cannot change the suitability score.",
+            "Separate research evidence",
+            "Experimental 3D Geometry Analysis",
+            "Image-space evidence only. It cannot verify camera translation, exact coverage or reconstruction success.",
         )
         _viewpoint_diversity(st, report)
         _capture_completeness(st, report)
+        _section_heading(
+            st,
+            "Research archive",
+            "Disabled machine-learning study",
+            "Shown for scientific transparency; no model runs on this upload.",
+        )
         _experimental_ridge_prediction(st, report)
-        _registration_prediction(st, report)
-        _uncertainty(st, report)
     with problems:
         _timeline(st, result["timeline"])
         if st.button("Render representative problem frames"):
@@ -1241,6 +1283,17 @@ def _analysis_view(st: Any) -> None:
     with guidance:
         _recommendations(st, result["timeline"])
     with technical:
+        _uncertainty(st, report)
+        baseline = float(report["baseline_v1"]["overall_score"])
+        score = float(report["overall_score"])
+        with st.expander("Score method and preserved baseline", expanded=False):
+            st.write(
+                f"Current technical evidence score: **{score:.2f}** · preserved v1 baseline: "
+                f"**{baseline:.2f}** · change: **{score-baseline:+.2f}**."
+            )
+            st.caption(
+                "Neither score is a calibrated probability of reconstruction success."
+            )
         triggered = [gate for gate in report["critical_failure_gate_evaluations"] if gate["triggered"]]
         if triggered:
             st.warning("Documented physical reliability gates affected the final score.")
@@ -1248,6 +1301,16 @@ def _analysis_view(st: Any) -> None:
         with st.expander("Method warnings and research limitations", expanded=False):
             for warning in report["warnings"]:
                 st.write(f"- {warning}")
+        with st.expander("Sampling, provenance and disabled ML status", expanded=False):
+            st.json(
+                {
+                    "video_sampling": report.get("raw_metrics", {}).get("video", {}),
+                    "runtime_provenance": report.get("runtime_provenance", {}),
+                    "random_forest": report.get("registration_prediction", {}),
+                    "retired_ridge": report.get("experimental_ridge_prediction", {}),
+                },
+                expanded=False,
+            )
         with st.expander("Full JSON report"):
             st.json(report, expanded=False)
         if report.get("performance_profile"):
@@ -1275,14 +1338,23 @@ def _analysis_view(st: Any) -> None:
             mime="application/json",
             use_container_width=True,
         )
+        timeline_payload = _timeline_csv(result["timeline"])
+        if timeline_payload:
+            st.download_button(
+                "Download diagnostic timeline CSV",
+                timeline_payload,
+                file_name=f"{Path(result['filename']).stem}_diagnostics.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
 
 def _evaluation_view(st: Any) -> None:
     _section_heading(
         st,
-        "Research evidence",
-        "Experimental ML evaluation",
-        "Historical grouped CV and the independent four-video diagnostic are shown separately. Live numeric Ridge inference is disabled.",
+        "Retired research",
+        "Retired ML Experiment — Registration Predictor",
+        "Disabled after substantial errors in independent uploaded-video validation. No live prediction is available.",
     )
     first, second, third = st.columns(3)
     first.metric("Best offline model", "Ridge")
@@ -1406,7 +1478,7 @@ def _evaluation_view(st: Any) -> None:
 def _method_view(st: Any) -> None:
     st.markdown("### What this MVP measures")
     st.write(
-        "Uniform whole-timeline samples feed visual quality, exposure, ORB/RANSAC geometry, optical-flow retention, overlap and camera-motion evidence. A separate multi-gap module estimates viewpoint diversity without changing either score path."
+        "Uniform whole-timeline samples feed visual quality, exposure, ORB/RANSAC geometry, optical-flow retention, overlap and image-motion evidence. A separate multi-gap module estimates viewpoint diversity without changing the score."
     )
     c1, c2, c3 = st.columns(3)
     c1.success("**Local & CPU-runnable**\n\nNo video is sent to a paid API by this app.")
@@ -1428,11 +1500,11 @@ def main() -> None:
             "Install the app extra with `python -m pip install -e '.[app-ml]'`."
         ) from exc
     st.set_page_config(
-        page_title="3D Capture Check", page_icon="◈", layout="wide", initial_sidebar_state="collapsed"
+        page_title="3D Capture Analyzer", page_icon="⌗", layout="wide", initial_sidebar_state="collapsed"
     )
     st.markdown(APP_CSS, unsafe_allow_html=True)
     _hero(st)
-    analysis, evaluation, method = st.tabs(["Analyze a video", "Evaluation evidence", "How it works"])
+    analysis, evaluation, method = st.tabs(["Analyzer", "Research archive", "Method & limitations"])
     with analysis:
         _analysis_view(st)
     with evaluation:

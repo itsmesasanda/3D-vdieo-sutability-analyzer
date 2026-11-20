@@ -1,5 +1,28 @@
 # Project status
 
+## Final Streamlit UI/UX redesign (2026-11-20)
+
+Reorganized the app into a dark, responsive 3D-capture dashboard without changing
+analysis. The primary result now separates the existing technical evidence score
+from `Geometric readiness — Not verified`, places direct image-quality proxies
+before indirect feature/overlap/path evidence, and preserves Detected/Suspected/Not
+measurable distinctions in prioritized issues and the timeline.
+
+Experimental geometry now sits near the bottom with object tracking, mask quality,
+motion ambiguity, evidence scope and capture guidance. The final ML section is
+`Retired ML Experiment — Registration Predictor`; it reports the independent
+58.743399 pp MAE and cannot render or run a live Ridge prediction. The Random Forest
+unavailable card was removed from the primary interface, while its disabled status
+remains in the technical report and JSON.
+
+The dark theme uses near-black/navy surfaces, restrained cyan/violet accents, a
+larger uploader, and 780/460 px responsive breakpoints. JSON plus timeline CSV,
+provenance, CPU timing, warnings and gates remain available through progressive
+disclosure. A real Streamlit server returned `ok` from its health endpoint. The
+focused subset passed 40 tests; the complete suite reported `147 passed, 2 skipped
+in 157.12s`; deployment preflight, compilation and `git diff --check` passed.
+Details are in `docs/final_streamlit_ui_redesign.md`.
+
 ## Final heuristic-score consistency audit (2026-11-20)
 
 Resolved the apparent Phase 1/Phase 3 score conflict without changing code. The

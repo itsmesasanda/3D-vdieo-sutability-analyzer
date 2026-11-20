@@ -29,16 +29,19 @@ def test_streamlit_cloud_dependency_and_upload_configuration():
     assert "maxUploadSize = 150" in config
     assert "headless = true" in config
     assert "ffmpeg" in packages.splitlines()
-    assert 'base = "light"' in config
-    assert 'textColor = "#18212F"' in config
+    assert 'base = "dark"' in config
+    assert 'backgroundColor = "#050812"' in config
+    assert 'textColor = "#EDF7FF"' in config
 
 
 def test_streamlit_styles_include_desktop_and_mobile_layouts():
     assert "@media (max-width: 780px)" in app.APP_CSS
     assert "@media (max-width: 460px)" in app.APP_CSS
-    assert "--coral:#e85f57" in app.APP_CSS
+    assert "--cyan:#22d3ee" in app.APP_CSS
+    assert "--violet:#8b5cf6" in app.APP_CSS
     assert '[data-testid="stCheckbox"] label p' in app.APP_CSS
     assert '[data-testid="stFileUploaderDropzone"]' in app.APP_CSS
+    assert "min-height:220px" in app.APP_CSS
 
 
 def test_streamlit_policy_keeps_random_forest_disabled_by_default(
