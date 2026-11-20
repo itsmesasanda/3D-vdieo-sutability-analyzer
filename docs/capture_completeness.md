@@ -28,6 +28,9 @@ percentage.
 Whole-frame viewpoint analysis alone is insufficient for object capture guidance.
 If object-focused tracking covers less than 70% of samples, the result is **Capture
 coverage not verified** and includes the existing tracking or geometry reason.
+Passing 70% tracking is necessary but not sufficient: background dominance, blur,
+ambiguous descriptors, planar/rotation evidence, or inadequate long-gap object
+geometry still keeps the result unverified.
 
 ## Interpretation
 

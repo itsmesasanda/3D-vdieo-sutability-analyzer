@@ -87,8 +87,10 @@ video-suitability --video capture.mov --out report.json \
   --object-bbox 0.25,0.10,0.50,0.80 --profile
 ```
 
-The box never changes the main suitability score. If affine-RANSAC tracking cannot
-retain it across at least 70% of samples, the viewpoint result is `Unknown`.
+The box never changes the main suitability score. Object tracking combines
+forward/backward KLT, object-masked ORB re-detection, affine RANSAC, cycle checks,
+and one bounded post-occlusion reacquisition attempt. If these checks cannot retain
+the object across at least 70% of samples, the viewpoint result is `Unknown`.
 
 After a compatible final Random Forest artifact is installed, the CLI can attach
 its independent registration prediction:

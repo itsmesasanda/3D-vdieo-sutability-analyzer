@@ -184,6 +184,23 @@ def analyze_capture_completeness(
     if viewpoint_result.get("evidence_status") != "sufficient" or label == "Unknown":
         result = _unverified(primary_reason, analysis_mode=analysis_mode)
         result["tracking_percent"] = round(100.0 * tracked_fraction)
+        if "Background-only" in primary_reason:
+            result["suggestions"] = [
+                "Object tracking was adequate, but background correspondences dominated; keep the object larger in frame and reduce distinctive background clutter.",
+                "Use a plain contrasting background while preserving texture on the object itself.",
+                "If upper surfaces matter, add a deliberate elevated pass; current evidence still cannot verify one.",
+            ]
+        elif "Descriptors are frequently ambiguous" in primary_reason:
+            result["suggestions"] = [
+                "Tracking was adequate, but repeated or symmetric appearance made object correspondences ambiguous.",
+                "Improve diffuse lighting or add removable non-repeating reference detail when appropriate.",
+                "Record overlapping lateral and elevated views without assuming that a repeated front view completes the capture.",
+            ]
+        elif "blurry" in primary_reason.lower():
+            result["suggestions"] = [
+                "Object tracking alone is not enough: record more slowly with sharper focus and brighter diffuse light.",
+                "Repeat the lateral path after sharp object detail is visible in each view.",
+            ]
         # A static-background/object-motion pattern can explain why coverage is not
         # verified while still being useful capture-mode guidance. It remains
         # explicitly compatible with either a turntable or animation.

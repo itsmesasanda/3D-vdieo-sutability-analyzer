@@ -42,8 +42,8 @@ def test_capture_guidance_is_conservative_across_synthetic_cases(
     }
     assert observed == {
         "front_only": "limited_view_evidence",
-        "quarter_orbit": "varied_view_evidence",
-        "full_orbit": "varied_view_evidence",
+        "quarter_orbit": "not_verified",
+        "full_orbit": "not_verified",
         "pure_rotation": "not_verified",
         "animated_object": "not_verified",
         "blurry": "not_verified",
@@ -67,13 +67,35 @@ def test_capture_guidance_does_not_change_existing_results(
         assert report["baseline_v1"] == baseline["baseline_v1"]
 
 
-def test_unreliable_tracking_uses_required_not_verified_message(
+def test_animated_object_remains_not_verified_after_tracking_improves(
     completeness_reports,
 ):
     capture = completeness_reports["animated_object"]["capture_completeness"]
     assert capture["label"] == "Capture coverage not verified"
-    assert capture["tracking_percent"] < 70
     assert capture["view_variation"]["label"] == "Not verified"
+    assert completeness_reports["animated_object"]["viewpoint_diversity"][
+        "label"
+    ] == "Unknown"
+
+
+def test_unreliable_tracking_uses_required_not_verified_message():
+    result = analyze_capture_completeness(
+        {
+            "label": "Unknown",
+            "evidence_status": "insufficient",
+            "method": {"analysis_mode": "object_focused"},
+            "decision_explanation": {
+                "primary_reason": "The selected object region could not be tracked reliably."
+            },
+            "object_tracking": {
+                "tracked_sample_fraction": 0.50,
+                "forward_reached_end": False,
+                "backward_reached_start": False,
+            },
+        }
+    )
+    assert result["label"] == "Capture coverage not verified"
+    assert result["tracking_percent"] == 50
 
 
 def test_capture_mode_can_flag_static_camera_object_motion_without_claiming_turntable():

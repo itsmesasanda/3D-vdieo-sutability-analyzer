@@ -18,15 +18,21 @@ Appearance change by itself never satisfies a diversity category.
 1. Uniformly sample and resize the video once.
 2. Extract one shared ORB cache. Adjacent whole-frame geometry still feeds the
    unchanged suitability score.
-3. Starting at the middle sample, propagate the selected region forward and
-   backward using object-box query features, ratio-test matches, and partial-affine
-   RANSAC. Reject low inlier support, implausible scale/size changes, and broken
-   tracks.
-4. Split the shared ORB features into tracked object and background caches. Run the
-   viewpoint classifier on object-only features, with at most nine long-gap pairs
-   in the live path. Background matches are reported independently and never
-   increase the object category.
-5. Return `Unknown` if fewer than 70% of samples retain a reliable region, object
+3. Build a bounded foreground prior once on the selected middle frame. The largest
+   connected GrabCut component is warped with the tracked box; an implausible mask
+   falls back explicitly to the user box rather than fabricating a foreground.
+4. Propagate the region forward and backward using pyramidal KLT with point-level
+   forward/backward validation plus object-masked ORB re-detection and partial-affine
+   RANSAC. Independent reverse propagation verifies each accepted step. Axis-aligned
+   box center/scale updates avoid cumulative growth from turntable surface rotation.
+   One missing sample may be skipped for bounded post-occlusion re-detection, but it
+   remains missing in the reported tracking percentage.
+5. Re-detect object ORB features inside the propagated foreground mask. Global ORB
+   features outside that mask form the separate background cache, including
+   background pixels that happened to fall inside a generous user rectangle. Run
+   the viewpoint classifier on object-only features, with at most nine long-gap
+   pairs. Background matches never increase the object category.
+6. Return `Unknown` if fewer than 70% of samples retain a reliable region, object
    texture/matches are inadequate, descriptors are ambiguous, motion is
    homography/rotation dominated, or background matches dominate most evaluable
    pairs.
@@ -77,7 +83,8 @@ python scripts/benchmark_object_focused.py \
   --max-samples 16 --max-side 400
 ```
 
-Observed on the recorded local Apple Silicon run:
+Observed on the recorded pre-hybrid local Apple Silicon run (retained as a historical
+baseline; the 2026-11-20 foreground-separated behavior is described below):
 
 | Scenario | Whole frame | Object-focused | Object tracking | Median verified long-gap matches whole/object | Parallax proxy whole/object | Wall seconds whole/object |
 |---|---|---|---:|---:|---:|---:|
@@ -95,7 +102,10 @@ show a high parallax proxy; the blur gate takes precedence. All overall scores,
 subscores, and v1 baselines were identical between modes.
 
 These layered 2D fixtures test plumbing and failure gates. They are not recordings
-of one physical object and do not establish real-world accuracy.
+of one physical object and do not establish real-world accuracy. With foreground
+masking enabled, the quarter/full proxy foregrounds are correctly recognized as
+planar affine warps and return `Unknown`; their previous `Moderate` result depended
+on synthetic background-layer parallax inside the rectangular object region.
 
 ## Prepared physical-object protocol
 
@@ -168,3 +178,32 @@ runs, not cross-platform guarantees.
   assumption; a mostly static physical object is required.
 - Occlusion, specularity, motion blur, and a viewpoint that replaces most visible
   object texture can break affine box propagation even during a useful orbit.
+
+## Hybrid-tracker real-video regression (2026-11-20)
+
+Production settings used 32 samples and a 640-pixel analysis side. Values below are
+single local CPU runs with the same normalized box before and after. The heuristic
+score was identical in every pair.
+
+| Video | Tracking before → after | Cycle verification before → after | Median verified object matches before → after | Object valid geometry before → after | Wall seconds before → after | Final capture result |
+|---|---:|---:|---:|---:|---:|---|
+| Rice-cooker turntable | 53.1% → 100% | 94.1% → 100% | 126 → 144 | 51.6% → 100% | 1.755 → 3.887 | Not verified |
+| Animated hand | 50.0% → 71.9% | 93.8% → 100% | 0 → 59 | 48.4% → 67.7% | 0.779 → 2.039 | Not verified |
+| IMG_3913.MOV | 3.1% → 3.1% | 0% → 0% | 0 → 0 | 0% → 0% | 15.525 → 15.268 | Not verified |
+| IMG_3914.MOV | 3.1% → 3.1% | 0% → 0% | 0 → 0 | 0% → 0% | 7.327 → 8.847 | Not verified |
+| IMG_3915.MOV | 3.1% → 3.1% | 0% → 0% | 0 → 0 | 0% → 0% | 7.767 → 7.946 | Not verified |
+
+The rice-cooker box now survives the entire sample sequence, but 77.8% of evaluated
+long-gap pairs remain background-dominated and the separated object descriptors are
+ambiguous. Its viewpoint and completeness results therefore remain `Unknown` and
+`Capture coverage not verified`. The animated hand likewise remains unverified due
+to blur/low-texture evidence. The three fast smartphone captures replace too much
+object appearance between sparse production samples for either KLT or masked ORB to
+establish a reliable cycle, so the 70% requirement was not weakened.
+
+The tracker cannot confidently distinguish the rice-cooker turntable from animation:
+background matches are abundant and their measured displacement is not consistently
+near-static. Capture mode therefore remains `uncertain` rather than being forced to
+turntable. The matching real front-only rice-cooker recording was not available;
+the deterministic front-only fixture stayed `Low` with 100% tracking and `Limited
+viewpoint variation`.

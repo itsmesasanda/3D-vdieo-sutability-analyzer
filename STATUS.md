@@ -1876,3 +1876,31 @@ deployment preflight, and the full pytest suite. Compilation/diff checks exited 
 deployment preflight reported PASS, and the final pytest run reported `119 passed,
 2 skipped in 145.96s`; the skips are the unchanged optional PyTorch tests.
 
+## Hybrid real-video object tracking — implemented (2026-11-20)
+
+Replaced first-failure global-ORB box propagation with a conservative hybrid of
+object-masked periodic ORB re-detection, pyramidal KLT, point-level and box-level
+forward/backward checks, affine RANSAC, damped axis-aligned scale updates, and one
+bounded post-occlusion reacquisition. A one-frame foreground prior separates object
+and background feature caches; background pixels inside a loose selection rectangle
+no longer become object-view evidence. The 70% evidence requirement is unchanged.
+
+At production settings, rice-cooker tracking improved from 17/32 (53.1%) to 32/32
+(100%), cycle verification from 94.1% to 100%, median verified object matches from
+126 to 144, and object valid geometry from 51.6% to 100%. Wall time increased from
+1.755 s to 3.887 s. Its score stayed 83.14. Viewpoint/completeness stayed
+Unknown/not verified because 77.8% of evaluated long-gap pairs were background
+dominated and separated object descriptors remained ambiguous.
+
+The animated hand improved from 50.0% to 71.9% tracking but remained Unknown/not
+verified because blur and low texture invalidate coverage inference. The three real
+smartphone MOVs remained at 3.1% tracking: sparse production samples contain too
+much inter-view appearance replacement for reliable KLT/ORB cycles. Their Unknown
+results were preserved. The synthetic front-only fixture remained Low with 100%
+tracking. Synthetic quarter/full 2D proxies became Unknown after foreground masking
+removed the background-layer parallax that previously inflated object evidence.
+
+Final `compileall` and `git diff --check` exited 0. The Streamlit deployment
+preflight reported PASS. The final complete regression suite reported `123 passed,
+2 skipped in 157.93s`; the two skips are the unchanged optional PyTorch tests.
+
