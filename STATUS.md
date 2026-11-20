@@ -1872,6 +1872,61 @@ seconds (`IMG_3913.MOV`), 6.248531/33.920956 (`IMG_3914.MOV`), and
 6.179708/34.413005 (`IMG_3915.MOV`). Their main scores matched the preserved prior
 comparison exactly: 60.75, 51.26, and 49.94.
 
+### Shoe-video sampling-density false-negative diagnostic
+
+The exact `/Users/sasanda/Downloads/sampleVideo.mp4` source was recovered and
+recorded as SHA256 `749d211568634f186b8ddb120e18b336dca7c8eb10573690e978261e73d98926`.
+It is 65.516667 seconds / 3,931 frames at 60 fps. Production's 32 uniform samples
+are 2.116667 seconds apart. With unchanged v2.1 scoring, the current revision
+produced 41.77 at 32 samples, 54.13 at 64, 79.01 at 128, and 86.58 at 256. The
+production-valid 120-sample control produced 77.15. Median verified matches rose
+from 5 to 249 and low-overlap fraction fell from 96.77% to 0%, establishing fixed
+sample-count sparsity as the primary cause of the low whole-frame technical score.
+
+The object-level problem did not disappear. A documented middle-frame ROI yielded
+a GrabCut mask contaminated by the black stool and only the reference frame was
+accepted at 32, 128, and 256 samples. At 256, 100 KLT RANSAC inliers represented
+only 35.6% affine consensus, below the preserved conservative requirement.
+Viewpoint/capture readiness therefore remains Unknown. No matching shoe image set
+or reconstruction artifact was available; 960 loose PNG frames in Downloads were
+verified to depict a different red-bottle capture.
+
+Added `scripts/diagnose_sampling_density.py`, summary/full diagnostic artifacts,
+and `docs/shoe_false_negative_diagnostic.md`. Focused checks passed: 23 tests in
+13.42 seconds (`test_video`, `test_integration`, and deployment readiness). The
+complete suite passed 147 tests with 2 expected PyTorch-dependent skips in 168.60
+seconds. No production setting, score, threshold, ML path, or geometric decision
+was changed.
+
+### Experimental duration-aware geometry stream
+
+Added `experimental_geometry_sampling.py` and a manifest-driven isolated validation
+runner. The production 32-frame quality/geometry report remains unchanged. The
+optional second stream plans uniform geometry samples from duration alone at a
+0.5-second target, never samples fewer than production, and is capped at the
+existing validated 120-frame ceiling. Its shadow score is explicitly non-production;
+Ridge preprocessing and every ORB/RANSAC/confidence threshold remain unchanged.
+
+The shoe comparison used 120 frames at a 0.55-second median gap and improved
+adjacent continuity from 5 to 86 median verified matches, reduced low overlap from
+96.77% to 12.61%, and changed the experimental shadow score from 41.77 to 77.15.
+Both production and dense viewpoint results remained Unknown. No tested negative
+control gained overall score: stationary and rotation-only remained capped at 35,
+animated changed 81.93 -> 79.72, blurry remained 55, and dark changed 53.82 ->
+53.53. However, the synthetic quarter-orbit viewpoint result changed Moderate ->
+Low, while the real front-only recording remained an existing 89 / High result.
+
+Decision: keep duration-aware sampling experimental. It repairs the demonstrated
+long-video continuity failure but cannot establish object-level geometry, changes
+viewpoint semantics, and costs an additional 104.39 CPU seconds / 22.91 wall
+seconds for the shoe stream with 454.8 MiB process peak RSS. See
+`docs/duration_aware_geometry_sampling.md` and
+`evaluation/duration_aware_geometry/results/comparison.csv`.
+
+Final regression: 151 tests passed with 2 expected PyTorch-dependent skips in
+185.06 seconds. The Streamlit deployment preflight passed and confirmed the
+default-off Ridge policy and disabled Random Forest path.
+
 Sharpness investigation did not justify a scoring change. Current smooth synthetic
 orbit frames measured median Laplacian variance 681.339770 and visual quality 97.14;
 the deliberately blurred counterpart measured 4.781712 and 14.61. Raw pre-encoding
