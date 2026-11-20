@@ -9,16 +9,16 @@ An optional middle-frame object box focuses this category on tracked object feat
 while preserving background matches as separate diagnostics.
 
 The public Streamlit deployment keeps Random Forest disabled behind its existing
-production parity gates. Live numeric **experimental Ridge** output is also disabled
-after failed independent validation. The pinned historical artifact, exact feature
-extractor and parity checks remain available for offline research; neither ML path
-can change the heuristic or geometric analyzer.
+production parity gates. The historical **experimental Ridge** output is available
+only as an explicit opt-in research preview and is off by default. Its pinned
+artifact, exact feature extractor and saved parity checks remain mandatory; neither
+ML path can change the heuristic or geometric analyzer.
 
 Final independent CPU COLMAP diagnostics on four uploaded videos found Ridge MAE
 **58.74 percentage points**, with three overpredictions greater than 60 points. The
-one 60/60 registration match did not verify object-centered geometry. Live numeric
-Ridge inference is therefore disabled; the artifact remains available only for
-offline research and reproducibility. See the
+one 60/60 registration match did not verify object-centered geometry. Any optional
+live Ridge percentage is therefore labeled `Unreliable` and must not guide
+reconstruction decisions. See the
 [final evaluation report](evaluation/ml/independent_ridge_validation/FINAL_EVALUATION_REPORT.md).
 
 A minimal offline independent diagnostic now prepares the same frozen 60 JPEGs for
@@ -369,8 +369,9 @@ provides:
 - a separate Estimated Viewpoint Diversity panel with Low/Moderate/High/Unknown,
   evidence counts, limitations, and actionable capture guidance when the optional
   experimental checkbox is enabled;
-- a final **Retired ML Experiment — Registration Predictor** panel documenting the
-  four-video 58.743399 percentage-point MAE result; no live Ridge percentage runs;
+- a final **Experimental ML Prediction** panel, off by default, that can show the
+  original integrity-gated Ridge estimate while prominently documenting the
+  four-video 58.743399 percentage-point MAE result;
 - optional middle-frame object selection, tracked object-only viewpoint evidence,
   background-contamination diagnostics, and a clear Unknown reason on track loss;
 - conservative capture-completeness guidance, with higher/lower views explicitly
@@ -397,9 +398,22 @@ the work. Problem-frame rendering is deferred to a separate button. See
 
 Commit and push the deployment files, then open `https://share.streamlit.io`, select
 **Create app**, choose the repository and `main` branch, and enter `app.py` as the
-file path. In Advanced settings select Python 3.11. Random Forest and live numeric
-Ridge inference require no secret because both are disabled. Do not deploy the
-ignored historical model binary; it remains an offline research artifact.
+file path. In Advanced settings select Python 3.11. Random Forest requires no secret
+and remains disabled. The optional Ridge preview needs the ignored trusted model
+artifact supplied through the Streamlit secret `EXPERIMENTAL_RIDGE_ARTIFACT_B64`;
+without it the panel reports `Prediction unavailable`.
+
+Generate the single-line secret locally without committing the model binary:
+
+```bash
+base64 -i evaluation/ml/historical_registration_experiment/historical_opencv8_v2/experimental_model.joblib | tr -d '\n'
+```
+
+Then add it in Community Cloud's Secrets editor:
+
+```toml
+EXPERIMENTAL_RIDGE_ARTIFACT_B64 = "PASTE_SINGLE_LINE_BASE64_HERE"
+```
 
 The app verifies the decoded bytes against the pinned SHA-256 before joblib is
 allowed to deserialize them. A missing, malformed or replaced secret produces a
@@ -431,9 +445,10 @@ streamlit run app.py --server.headless true
 
 After deployment, test one short MP4 and one iPhone/Android MOV. First leave
 experimental geometry off and confirm the heuristic score, timeline and downloads.
-Then enable geometry and confirm failures remain isolated. The final retired-ML
-section must state that live Ridge is disabled after the four-video 58.743399 pp MAE
-result and must never display a new prediction.
+Then enable geometry and confirm failures remain isolated. Finally enable the Ridge
+research preview and confirm the result is labeled `Unreliable`, reports the 58.74
+pp four-video MAE, and remains separate from both analyzers. A missing or incompatible
+artifact must display `Prediction unavailable`.
 Random Forest must remain unavailable.
 
 ## 4K performance

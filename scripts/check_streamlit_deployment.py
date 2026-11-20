@@ -39,9 +39,12 @@ def main() -> int:
     require(prediction["trained_model_used"] is False, "Random Forest policy is inconsistent")
     ridge = app._not_requested_experimental_ridge()
     require(ridge["status"] == "not_requested", "Ridge default status changed")
-    require("disabled" in ridge["reason"].lower(), "Live numeric Ridge must remain disabled")
+    require("disabled by default" in ridge["reason"].lower(), "Ridge preview must default off")
     require(ridge["affects_suitability_score"] is False, "Ridge must stay separate")
-    print("PASS: entry point, dependencies, upload policy, ffmpeg, and disabled live ML policies")
+    print(
+        "PASS: entry point, dependencies, upload policy, ffmpeg, disabled Random "
+        "Forest, and default-off experimental Ridge policy"
+    )
     return 0
 
 

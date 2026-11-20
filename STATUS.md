@@ -1,5 +1,26 @@
 # Project status
 
+## Opt-in experimental Ridge preview restored (2026-11-20)
+
+Restored the original historical Ridge video prediction only as an explicitly
+enabled research preview. It remains off by default, uses the unchanged frozen
+uploaded-video adapter, and must pass the pinned model hash, eight-feature order,
+estimator identity and three saved prediction-parity examples. Missing or invalid
+artifacts return `Prediction unavailable` without affecting either analyzer.
+
+The last results section is now `Experimental ML Prediction` with an `Unreliable`
+badge, the four-video 58.74 pp MAE warning, and explicit non-claims about successful
+reconstruction or surface coverage. Raw outputs above 100 are disclosed and clipped
+only for display. Historical comparison rows were removed from the main interface;
+repository evaluation reports are unchanged.
+
+Focused artifact/parity/adapter/UI/deployment-policy tests reported `37 passed in
+140.67s`. An end-to-end opt-in smoke test on `good_orbit.mp4` preserved the 59.15
+heuristic score and every subscore, verified all three saved parity cases, and
+produced the existing research estimate of 80.468357%. The complete suite reported
+`147 passed, 2 skipped in 182.04s`; deployment preflight and `git diff --check`
+passed. The two skips remain the optional PyTorch training tests.
+
 ## Final Streamlit UI/UX redesign (2026-11-20)
 
 Reorganized the app into a dark, responsive 3D-capture dashboard without changing
@@ -9,11 +30,11 @@ before indirect feature/overlap/path evidence, and preserves Detected/Suspected/
 measurable distinctions in prioritized issues and the timeline.
 
 Experimental geometry now sits near the bottom with object tracking, mask quality,
-motion ambiguity, evidence scope and capture guidance. The final ML section is
-`Retired ML Experiment — Registration Predictor`; it reports the independent
-58.743399 pp MAE and cannot render or run a live Ridge prediction. The Random Forest
-unavailable card was removed from the primary interface, while its disabled status
-remains in the technical report and JSON.
+motion ambiguity, evidence scope and capture guidance. The final ML section was
+subsequently changed to the off-by-default `Experimental ML Prediction` research
+preview documented above. The Random Forest unavailable card was removed from the
+primary interface, while its disabled status remains in the technical report and
+JSON.
 
 The dark theme uses near-black/navy surfaces, restrained cyan/violet accents, a
 larger uploader, and 780/460 px responsive breakpoints. JSON plus timeline CSV,

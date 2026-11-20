@@ -119,7 +119,7 @@ def test_streamlit_app_renders_all_competition_views_without_exceptions():
     assert len(rendered.get("metric")) >= 3
 
 
-def test_retired_ml_panel_never_renders_a_live_prediction():
+def test_experimental_ml_panel_is_minimal_unreliable_and_separate():
     class FakeStreamlit:
         def __init__(self):
             self.markup = ""
@@ -152,10 +152,11 @@ def test_retired_ml_panel_never_renders_a_live_prediction():
             }
         },
     )
-    assert "Retired ML Experiment — Registration Predictor" in fake.markup
-    assert "58.743399" in fake.markup
-    assert "No live prediction is run" in fake.markup
-    assert "99.9" not in fake.markup
+    assert "Experimental ML Prediction" in fake.markup
+    assert "Unreliable" in fake.markup
+    assert "99.9%" in fake.markup
+    assert "58.74 percentage points across four videos" in fake.markup
+    assert "separate from the main heuristic score" in fake.markup
 
 
 class _ViewpointRendererStub:

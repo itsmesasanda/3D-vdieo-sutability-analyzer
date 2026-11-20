@@ -2,9 +2,7 @@ import base64
 from pathlib import Path
 
 import app
-import pytest
 from video_suitability.ml.experimental_ridge import (
-    ExperimentalRidgeError,
     MODEL_SHA256,
     load_experimental_ridge,
     predict_experimental_ridge_registration,
@@ -49,7 +47,7 @@ def test_streamlit_secret_bytes_use_the_same_integrity_gated_loader():
     assert integrity["model_sha256"] == MODEL_SHA256
 
 
-def test_disabled_live_path_never_deserializes_supplied_model_bytes(monkeypatch):
+def test_untrusted_model_bytes_are_rejected_before_deserialization(monkeypatch):
     import joblib
 
     called = {"value": False}
@@ -62,19 +60,20 @@ def test_disabled_live_path_never_deserializes_supplied_model_bytes(monkeypatch)
     result = predict_experimental_ridge_registration(
         ROOT / "data/samples/good_orbit.mp4", model_bytes=b"not-the-model"
     )
-    assert result["status"] == "abstained"
-    assert "58.74 percentage-point MAE" in result["reason"]
+    assert result["status"] == "unavailable"
+    assert "integrity check failed" in result["reason"]
     assert called["value"] is False
     assert result["trained_model_used"] is False
 
 
-def test_live_prediction_abstains_without_changing_other_analyzers():
+def test_opt_in_live_prediction_is_bounded_separate_and_unreliable():
     result = predict_experimental_ridge_registration(
         ROOT / "data/samples/good_orbit.mp4"
     )
-    assert result["status"] == "abstained"
-    assert result["live_numeric_prediction_enabled"] is False
-    assert "predicted_registration_percentage" not in result
+    assert result["status"] == "available"
+    assert result["live_numeric_prediction_enabled"] is True
+    assert 0 <= result["predicted_registration_percentage"] <= 100
+    assert tuple(result["features"]) == HISTORICAL_FEATURE_NAMES
     assert result["independently_validated"] is False
     assert result["affects_suitability_score"] is False
     assert result["affects_viewpoint_diversity"] is False
@@ -108,7 +107,7 @@ def test_regression_output_is_clipped_without_changing_raw_value():
     assert diagnostic["object_geometry_verified"] is False
 
 
-def test_streamlit_ridge_panel_is_retired_and_never_displays_live_percentage():
+def test_streamlit_ridge_panel_displays_unreliable_opt_in_prediction_and_clipping():
     class FakeStreamlit:
         def __init__(self):
             self.markdown_blocks = []
@@ -145,16 +144,22 @@ def test_streamlit_ridge_panel_is_retired_and_never_displays_live_percentage():
     )
 
     rendered = " ".join(st.markdown_blocks)
-    assert "Retired ML Experiment — Registration Predictor" in rendered
-    assert "58.743399 percentage points" in rendered
-    assert "No live prediction is run" in rendered
-    assert "130.0" not in rendered
-    assert "100.0%" not in rendered
+    assert "Experimental ML Prediction" in rendered
+    assert "Unreliable" in rendered
+    assert "100.0%" in rendered
+    assert "raw Ridge output (130.0%)" in rendered
+    assert "clipped to 100%" in rendered
+    assert "not reliable enough to determine" in rendered
+    assert "Mean absolute error: 58.74 percentage points across four videos." in rendered
 
 
 def test_missing_artifact_fails_gracefully(tmp_path):
-    with pytest.raises(ExperimentalRidgeError, match="manifest is missing"):
-        load_experimental_ridge(artifact_directory=tmp_path)
+    result = predict_experimental_ridge_registration(
+        ROOT / "data/samples/good_orbit.mp4", artifact_directory=tmp_path
+    )
+    assert result["status"] == "unavailable"
+    assert "manifest is missing" in result["reason"]
+    assert result["trained_model_used"] is False
 
 
 def test_optional_inference_failure_cannot_change_main_report(

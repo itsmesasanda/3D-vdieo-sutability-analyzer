@@ -1,9 +1,9 @@
-"""Integrity-gated offline research support for the historical Ridge model.
+"""Integrity-gated opt-in research support for the historical Ridge model.
 
 This module intentionally remains separate from the production Random Forest path.
 Passing these checks proves artifact integrity and historical feature/model parity;
 it does not prove that uploaded videos share the CO3D training-input domain. Live
-numeric prediction abstains after failed independent validation.
+numeric prediction is available only as an explicitly enabled unreliable preview.
 """
 
 from __future__ import annotations
@@ -25,6 +25,7 @@ from .historical_registration_features import (
     LIVE_VIDEO_ADAPTER_CONTRACT_SHA256,
     LIVE_VIDEO_ADAPTER_POLICY,
     extract_historical_features_from_image_directory,
+    extract_historical_features_from_uploaded_video,
 )
 
 
@@ -38,13 +39,7 @@ MODEL_FILENAME = "experimental_model.joblib"
 ARTIFACT_RELATIVE_PATH = Path(
     "evaluation/ml/historical_registration_experiment/historical_opencv8_v2"
 )
-LIVE_NUMERIC_PREDICTION_ENABLED = False
-LIVE_ABSTENTION_REASON = (
-    "Live Ridge prediction is disabled after a four-video independent CPU COLMAP "
-    "diagnostic found 58.74 percentage-point MAE. Historical image-quality and ORB "
-    "features cannot reliably distinguish useful object geometry from background, "
-    "planar, repeated-view, or animated correspondences."
-)
+LIVE_NUMERIC_PREDICTION_ENABLED = True
 
 
 class ExperimentalRidgeError(RuntimeError):
@@ -186,12 +181,12 @@ def predict_experimental_ridge_registration(
     artifact_directory: Optional[Path] = None,
     model_bytes: Optional[bytes] = None,
 ) -> Dict[str, Any]:
-    """Abstain from live numeric output after failed independent validation."""
+    """Return an integrity-gated, explicitly unvalidated research prediction."""
 
     wall_started = time.perf_counter()
     cpu_started = time.process_time()
     base: Dict[str, Any] = {
-        "status": "abstained",
+        "status": "unavailable",
         "trained_model_used": False,
         "colmap_run": False,
         "affects_suitability_score": False,
@@ -200,7 +195,6 @@ def predict_experimental_ridge_registration(
         "independently_validated": False,
         "adapter_policy": LIVE_VIDEO_ADAPTER_POLICY,
         "live_numeric_prediction_enabled": LIVE_NUMERIC_PREDICTION_ENABLED,
-        "reason": LIVE_ABSTENTION_REASON,
         "independent_live_video_diagnostic": {
             "video_count": 4,
             "mae_percentage_points": 58.743399,
@@ -208,12 +202,18 @@ def predict_experimental_ridge_registration(
             "object_geometry_verified": False,
         },
     }
-    # Keep the artifact and exact extractor available for reproducible offline
-    # validation, but do not spend CPU or expose a numeric live estimate after the
-    # independent test demonstrated that even in-range feature vectors can fail by
-    # more than 90 percentage points. This is a domain-level abstention, not a claim
-    # that an OOD threshold repaired model accuracy.
-    del video_path, artifact_directory, model_bytes
+    try:
+        model, integrity = load_experimental_ridge(
+            artifact_directory=artifact_directory, model_bytes=model_bytes
+        )
+        features, adapter = extract_historical_features_from_uploaded_video(
+            video_path
+        )
+        if tuple(features) != HISTORICAL_FEATURE_NAMES:
+            raise ExperimentalRidgeError("Live feature order changed")
+        _attach_available_prediction(base, model, integrity, features, adapter)
+    except Exception as exc:
+        base["reason"] = str(exc) or exc.__class__.__name__
     base["performance_profile"] = {
         "wall_seconds": round(time.perf_counter() - wall_started, 6),
         "cpu_seconds": round(time.process_time() - cpu_started, 6),

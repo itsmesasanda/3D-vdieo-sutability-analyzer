@@ -87,8 +87,8 @@ def _not_requested_experimental_ridge() -> Dict[str, Any]:
     return {
         "status": "not_requested",
         "reason": (
-            "Live numeric Ridge inference is disabled after independent uploaded-video "
-            "validation found substantial errors."
+            "Experimental Ridge inference is disabled by default and was not requested. "
+            "Independent uploaded-video validation found substantial errors."
         ),
         "trained_model_used": False,
         "colmap_run": False,
@@ -190,6 +190,7 @@ APP_CSS = """
   .evidence-item strong { display:block; color:var(--ink); font-size:1.05rem; margin-top:.18rem; }
   .registration-panel { margin-top:1rem; padding:1.05rem 1.2rem; border-radius:15px; background:var(--surface); border:1px solid var(--line); }
   .retired-panel { border-color:rgba(251,113,133,.34); background:linear-gradient(145deg,var(--surface),rgba(251,113,133,.04)); }
+  .unreliable-badge { display:inline-block; padding:.25rem .58rem; border-radius:999px; color:#fecdd3; background:rgba(251,113,133,.14); border:1px solid rgba(251,113,133,.34); font-size:.68rem; font-weight:850; letter-spacing:.06em; text-transform:uppercase; }
   .registration-panel h3 { margin:.35rem 0; color:var(--ink); }
   .registration-panel p { margin:.25rem 0; color:var(--muted); }
   .registration-value { font-size:2rem; font-weight:800; color:var(--cyan); }
@@ -615,35 +616,42 @@ def _registration_prediction(st: Any, report: Dict[str, Any]) -> None:
 
 
 def _experimental_ridge_prediction(st: Any, report: Dict[str, Any]) -> None:
-    del report
+    prediction = report.get("experimental_ridge_prediction") or {}
+    status = str(prediction.get("status") or "not_requested")
+    score_markup = ""
+    status_copy = (
+        "Enable the optional research preview in Advanced Settings, then analyze the video."
+    )
+    clipping_copy = ""
+    if status == "available":
+        percentage = float(prediction["predicted_registration_percentage"])
+        score_markup = f'<div class="registration-value">{percentage:.1f}%</div>'
+        status_copy = "Estimated COLMAP image-registration percentage."
+        if prediction.get("prediction_was_clipped"):
+            raw = prediction.get("raw_prediction_percentage")
+            raw_text = f" ({float(raw):.1f}%)" if raw is not None else ""
+            clipping_copy = (
+                "<p><strong>Display limit:</strong> The raw Ridge output"
+                f"{raw_text} exceeded the 0–100% display range and was clipped to 100%."
+                "</p>"
+            )
+    elif status not in {"not_requested", "abstained"}:
+        status_copy = "Prediction unavailable"
     st.markdown(
-        """
+        f"""
         <div class="registration-panel retired-panel">
-          <div class="eyebrow">Disabled · unreliable on independent validation</div>
-          <h3>Retired ML Experiment — Registration Predictor</h3>
-          <p><strong>Historical model:</strong> Ridge Regression</p>
-          <p><strong>Independent validation:</strong> four uploaded videos · mean absolute error 58.743399 percentage points.</p>
-          <p>Three of four predictions overestimated registration by more than 60 percentage points. The historical features were insufficient for the uploaded-video domain.</p>
-          <p>No live prediction is run. Converting the same inaccurate percentages into categories would not repair predictive accuracy.</p>
+          <span class="unreliable-badge">Unreliable</span>
+          <h3>Experimental ML Prediction</h3>
+          {score_markup}
+          <p><strong>This prediction is not reliable enough to determine whether the video will produce a successful 3D model.</strong></p>
+          <p>{html.escape(status_copy)}</p>
+          <p>Mean absolute error: 58.74 percentage points across four videos.</p>
+          {clipping_copy}
+          <p>This optional Ridge estimate is separate from the main heuristic score. It does not measure reconstruction success, physical camera coverage or object-surface coverage.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
-    with st.expander("Historical prediction comparisons", expanded=False):
-        st.dataframe(
-            [
-                {"Video": "WhatsApp video", "Historical Ridge (%)": 100.000000, "COLMAP": "4 / 60", "Actual (%)": 6.666667},
-                {"Video": "front_only.mp4", "Historical Ridge (%)": 100.000000, "COLMAP": "60 / 60", "Actual (%)": 100.000000},
-                {"Video": "good_orbit.mp4", "Historical Ridge (%)": 84.750987, "COLMAP": "2 / 60", "Actual (%)": 3.333333},
-                {"Video": "waving_control.mp4", "Historical Ridge (%)": 63.555943, "COLMAP": "2 / 60", "Actual (%)": 3.333333},
-            ],
-            use_container_width=True,
-            hide_index=True,
-        )
-        st.caption(
-            "This four-video diagnostic is too small to estimate general accuracy. "
-            "COLMAP image registration is not proof of object-centered geometry or reconstruction completeness."
-        )
 
 
 def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
@@ -1205,7 +1213,24 @@ def _analysis_view(st: Any) -> None:
                                 st.caption(foreground_preview["note"])
                         except Exception:
                             st.image(preview, use_container_width=True)
-    experimental_ridge_model_bytes = None
+    with st.expander("Advanced Settings · Experimental ML research preview", expanded=False):
+        st.warning(
+            "Unreliable: independent validation measured 58.74 percentage-point "
+            "mean absolute error across four videos. Do not use this prediction to "
+            "decide whether reconstruction will succeed."
+        )
+        include_experimental_ridge = st.checkbox(
+            "Enable experimental Ridge prediction for this upload",
+            value=False,
+            key="experimental_ridge_enabled",
+            help=(
+                "Runs the original integrity-gated model and historical feature "
+                "adapter. It adds CPU time and does not affect either analyzer."
+            ),
+        )
+    experimental_ridge_model_bytes = (
+        _streamlit_ridge_model_bytes(st) if include_experimental_ridge else None
+    )
     ridge_identity = _ridge_cache_identity(
         include_experimental_ridge, experimental_ridge_model_bytes
     )
@@ -1260,12 +1285,6 @@ def _analysis_view(st: Any) -> None:
         )
         _viewpoint_diversity(st, report)
         _capture_completeness(st, report)
-        _section_heading(
-            st,
-            "Research archive",
-            "Disabled machine-learning study",
-            "Shown for scientific transparency; no model runs on this upload.",
-        )
         _experimental_ridge_prediction(st, report)
     with problems:
         _timeline(st, result["timeline"])
@@ -1352,9 +1371,9 @@ def _analysis_view(st: Any) -> None:
 def _evaluation_view(st: Any) -> None:
     _section_heading(
         st,
-        "Retired research",
-        "Retired ML Experiment — Registration Predictor",
-        "Disabled after substantial errors in independent uploaded-video validation. No live prediction is available.",
+        "Experimental research",
+        "Experimental ML Prediction — evaluation evidence",
+        "The optional live preview is unreliable and disabled by default. Historical and independent results are shown separately.",
     )
     first, second, third = st.columns(3)
     first.metric("Best offline model", "Ridge")
@@ -1366,7 +1385,7 @@ def _evaluation_view(st: Any) -> None:
           <div class="eyebrow">Experimental live adapter · substantial independent errors observed</div>
           <h3>Live Ridge estimates are not reliable success forecasts</h3>
           <p>A four-video independent CPU COLMAP diagnostic found MAE 58.74 percentage points; three predictions overestimated registration by more than 60 points. This is too small to estimate general accuracy, but it demonstrates a serious live-domain limitation.</p>
-          <p>A displayed 100% can be a clipped regression ceiling. Registration percentage does not guarantee object-centered geometry, reconstruction completeness or successful 3D reconstruction. Live Ridge and Random Forest numeric inference are disabled.</p>
+          <p>A displayed 100% can be a clipped regression ceiling. Registration percentage does not guarantee object-centered geometry, reconstruction completeness or successful 3D reconstruction. The Ridge preview is optional and unreliable; Random Forest numeric inference remains disabled.</p>
         </div>
         """,
         unsafe_allow_html=True,
