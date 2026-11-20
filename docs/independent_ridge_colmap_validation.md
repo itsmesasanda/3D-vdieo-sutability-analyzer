@@ -5,6 +5,18 @@ COLMAP registered-image count on a very small set of unseen uploaded videos. It 
 not retrain the model, affect Streamlit, change either analyzer, or claim accuracy.
 Three videos are only an initial diagnostic study.
 
+## Completed four-video evaluation
+
+The final diagnostic was expanded to four uploaded videos. It found Ridge MAE
+**58.743399 percentage points**, including three overpredictions greater than 60
+points. Results, methodology, the unresolved 60/60 front-only geometry question and
+presentation-ready limitations are preserved in
+[`FINAL_EVALUATION_REPORT.md`](../evaluation/ml/independent_ridge_validation/FINAL_EVALUATION_REPORT.md).
+
+This result supersedes the earlier statement that no independent live-video evidence
+existed. It remains a small diagnostic rather than a statistically sufficient
+accuracy evaluation.
+
 ## Inputs
 
 Prepare three videos that were not used in the historical experiments:

@@ -51,6 +51,15 @@ def measure_frame_quality(
     if entropy < 3.2 or gradient_magnitude < 5.0:
         issues.append("low_texture")
 
+    blur_flagged = "blur" in issues
+    low_texture_flagged = "low_texture" in issues
+    if blur_flagged and low_texture_flagged:
+        sharpness_proxy_status = "ambiguous_with_low_texture"
+    elif blur_flagged:
+        sharpness_proxy_status = "low_edge_detail_detected"
+    else:
+        sharpness_proxy_status = "not_flagged"
+
     return {
         "frame_index": int(frame_index),
         "timestamp_seconds": round(float(timestamp_seconds), 6),
@@ -61,6 +70,8 @@ def measure_frame_quality(
         "entropy_bits": round(entropy, 6),
         "dark_pixel_fraction": round(dark_fraction, 6),
         "bright_pixel_fraction": round(bright_fraction, 6),
+        "sharpness_proxy_status": sharpness_proxy_status,
+        "exposure_measurement_scope": "whole_frame",
         "issues": issues,
     }
 
@@ -112,5 +123,32 @@ def analyze_quality(
         "blurry_frame_fraction": round(issue_fraction("blur"), 6),
         "low_contrast_frame_fraction": round(issue_fraction("low_contrast"), 6),
         "low_texture_frame_fraction": round(issue_fraction("low_texture"), 6),
+        "blur_and_low_texture_frame_fraction": round(
+            float(
+                np.mean(
+                    [
+                        "blur" in metric["issues"]
+                        and "low_texture" in metric["issues"]
+                        for metric in frame_metrics
+                    ]
+                )
+            ),
+            6,
+        ),
+        "sharpness_measurement": {
+            "metric": "laplacian_variance_at_analysis_resolution",
+            "interpretation": (
+                "Low edge detail is a blur proxy, not proof of optical blur; smooth "
+                "or low-texture surfaces can produce the same response."
+            ),
+        },
+        "exposure_measurement": {
+            "scope": "whole_frame",
+            "foreground_status": "not_available",
+            "reason": (
+                "No validated foreground segmentation mask is available to separate "
+                "object exposure from the background."
+            ),
+        },
     }
     return {"summary": summary, "frames": frame_metrics}

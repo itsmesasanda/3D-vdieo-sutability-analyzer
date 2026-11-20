@@ -98,6 +98,29 @@ def test_unreliable_tracking_uses_required_not_verified_message():
     assert result["tracking_percent"] == 50
 
 
+def test_unreliable_foreground_mask_blocks_capture_claim_even_with_full_tracking():
+    result = analyze_capture_completeness(
+        {
+            "label": "High",
+            "evidence_status": "sufficient",
+            "method": {"analysis_mode": "object_focused"},
+            "decision_explanation": {"primary_reason": "Synthetic evidence."},
+            "object_tracking": {
+                "tracked_sample_fraction": 1.0,
+                "forward_reached_end": True,
+                "backward_reached_start": True,
+                "foreground_separation": {
+                    "reliable_for_object_evidence": False,
+                    "mask_quality_status": "rejected",
+                },
+            },
+        }
+    )
+    assert result["status"] == "not_verified"
+    assert result["label"] == "Capture coverage not verified"
+    assert "foreground mask" in result["summary"]
+
+
 def test_capture_mode_can_flag_static_camera_object_motion_without_claiming_turntable():
     viewpoint = {
         "label": "Moderate",
@@ -132,6 +155,44 @@ def test_capture_mode_can_flag_static_camera_object_motion_without_claiming_turn
     conservative = analyze_capture_completeness(viewpoint)
     assert conservative["status"] == "not_verified"
     assert conservative["capture_mode"]["status"] == "object_motion_pattern"
+
+
+def test_shared_scene_motion_does_not_claim_verified_camera_orbit():
+    viewpoint = {
+        "label": "Moderate",
+        "evidence_status": "sufficient",
+        "method": {"analysis_mode": "object_focused"},
+        "decision_explanation": {"primary_reason": "Usable image evidence."},
+        "object_tracking": {
+            "tracked_sample_fraction": 1.0,
+            "forward_reached_end": True,
+            "backward_reached_start": True,
+        },
+        "indicators": {
+            "temporally_separated_substantial_change_fraction": 0.5,
+            "temporally_separated_parallax_proxy_pair_fraction": 0.3,
+        },
+        "background_diagnostics": {
+            "evaluated_pair_count": 3,
+            "moving_object_with_static_background_pair_fraction": 0.0,
+            "pairs": [
+                {
+                    "evaluated": True,
+                    "object_motion_normalized": 0.02,
+                    "background_motion_normalized": 0.015,
+                    "object_verified_matches": 20,
+                    "background_verified_matches": 30,
+                }
+                for _ in range(3)
+            ],
+        },
+    }
+    result = analyze_capture_completeness(viewpoint)
+    mode = result["capture_mode"]
+    assert mode["status"] == "shared_scene_motion_pattern"
+    assert mode["label"] == "Shared scene-motion pattern"
+    assert "one possible explanation" in mode["reason"]
+    assert "not verified" in mode["reason"]
 
 
 def test_whole_frame_result_never_claims_object_capture_coverage(analysis_reports):

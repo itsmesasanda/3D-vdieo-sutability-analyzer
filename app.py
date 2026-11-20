@@ -29,7 +29,10 @@ from video_suitability.presentation import (
     timeline_rows,
     viewpoint_diversity_view,
 )
-from video_suitability.object_focus import TRACKER_IMPLEMENTATION_VERSION
+from video_suitability.object_focus import (
+    TRACKER_IMPLEMENTATION_VERSION,
+    build_foreground_mask_preview,
+)
 from video_suitability.runtime_provenance import runtime_provenance
 from video_suitability.video import uniform_sample_indices
 
@@ -55,7 +58,7 @@ def _analysis_cache_identity() -> Any:
 
     provenance = runtime_provenance()
     return (
-        "streamlit_analysis_v2",
+        "streamlit_analysis_v4_geometric_evidence_interpretation",
         TRACKER_IMPLEMENTATION_VERSION,
         provenance.get("object_tracker_source_sha256"),
         provenance.get("inference_source_sha256"),
@@ -82,7 +85,10 @@ def _disabled_registration_prediction() -> Dict[str, Any]:
 def _not_requested_experimental_ridge() -> Dict[str, Any]:
     return {
         "status": "not_requested",
-        "reason": "Enable the opt-in experimental ML panel to run this estimate.",
+        "reason": (
+            "Live numeric Ridge inference is disabled after independent uploaded-video "
+            "validation found substantial errors."
+        ),
         "trained_model_used": False,
         "colmap_run": False,
         "affects_suitability_score": False,
@@ -275,6 +281,18 @@ def _score_panel(st: Any, report: Dict[str, Any]) -> None:
     style = score_style(score)
     baseline = float(report["baseline_v1"]["overall_score"])
     revision = report.get("scoring_revision", "2.0")
+    interpretation = report.get("result_interpretation", {})
+    headline = interpretation.get(
+        "headline", "Technical capture score — geometric readiness unverified"
+    )
+    measures = interpretation.get(
+        "score_measures",
+        "The score summarizes sampled technical capture measurements.",
+    )
+    does_not_measure = interpretation.get(
+        "score_does_not_measure",
+        "It does not verify successful 3D reconstruction.",
+    )
     st.markdown(
         f"""
         <div class="score-panel">
@@ -283,7 +301,9 @@ def _score_panel(st: Any, report: Dict[str, Any]) -> None:
           </div>
           <div class="score-copy">
             <div class="eyebrow">Heuristic v2 · revision {revision}</div>
-            <h2>{style['label']}</h2>
+            <h2>{html.escape(str(headline))}</h2>
+            <p>{html.escape(str(measures))}</p>
+            <p><strong>Not measured:</strong> {html.escape(str(does_not_measure))}</p>
             <p>This is an evidence score, not a success probability.</p>
             <p>Preserved v1 baseline: <strong>{baseline:.2f}</strong> · change: <strong>{score-baseline:+.2f}</strong></p>
           </div>
@@ -333,6 +353,7 @@ def _attention_summary(st: Any, rows: List[Dict[str, Any]]) -> None:
                 f"""
                 <div class="attention-card">
                   <h4>{html.escape(card['label'])} · {html.escape(card['where'])}</h4>
+                  <div class="timeline-meta">{html.escape(str(card.get('diagnostic_status', 'detected')).replace('_', ' ').title())}</div>
                   <p>{html.escape(card['action'])}</p>
                 </div>
                 """,
@@ -386,8 +407,14 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
           <p>{html.escape(str(view.get('summary') or 'Viewpoint evidence is not available.'))}</p>
           <p><strong>Decision:</strong> {html.escape(str(primary_reason))}</p>
           <div class="evidence-grid">
+            <div class="evidence-item"><span>Feature continuity</span><strong>{html.escape(str(view.get('feature_continuity_label', 'Not available')))}</strong></div>
+            <div class="evidence-item"><span>Viewpoint-change evidence</span><strong>{html.escape(str(view.get('viewpoint_change_label', 'Not available')))}</strong></div>
+            <div class="evidence-item"><span>Evidence scope</span><strong>{html.escape(str(view.get('evidence_scope_label', 'Not available')))}</strong></div>
+            <div class="evidence-item"><span>Physical camera/object motion</span><strong>{html.escape(str(view.get('physical_motion_label', 'Not verified')))}</strong></div>
+          </div>
+          <div class="evidence-grid">
             <div class="evidence-item"><span>Substantial long-gap change</span><strong>{substantial}</strong></div>
-            <div class="evidence-item"><span>Rigid-consensus parallax proxy</span><strong>{parallax}</strong></div>
+            <div class="evidence-item"><span>Non-homography image-geometry proxy</span><strong>{parallax}</strong></div>
             <div class="evidence-item"><span>Mixed static/moving evidence</span><strong>{mixed_motion}</strong></div>
             <div class="evidence-item"><span>Repeated-view pairs</span><strong>{repeated}</strong></div>
           </div>
@@ -405,6 +432,20 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
             st.caption(
                 "No camera intrinsics were supplied. Calibrated relative pose and rotation-compensated parallax remain unavailable."
             )
+        if view.get("feature_continuity_meaning"):
+            st.write(
+                f"**Feature continuity:** {view.get('feature_continuity_meaning')}"
+            )
+        if view.get("viewpoint_change_meaning"):
+            st.write(
+                f"**Viewpoint-change interpretation:** {view.get('viewpoint_change_meaning')}"
+            )
+        if view.get("physical_motion_reason"):
+            st.write(
+                f"**Physical-motion limitation:** {view.get('physical_motion_reason')}"
+            )
+        for risk in view.get("confounding_risks", []):
+            st.caption(f"• Confounding risk: {risk}")
         if view.get("analysis_mode") == "object_focused":
             background_text = (
                 _display_metric(view.get("background_dominated_percent"))
@@ -414,6 +455,23 @@ def _viewpoint_diversity(st: Any, report: Dict[str, Any]) -> None:
                 f"cycle-verified tracking steps: **{_display_metric(view.get('tracking_cycle_verified_percent'))}** · "
                 f"background-dominated long-gap pairs: **{background_text}**"
             )
+            mask_status = str(
+                view.get("foreground_mask_status") or "not_available"
+            ).replace("_", " ").title()
+            st.write(
+                f"Reference foreground mask: **{mask_status}** · "
+                f"foreground inside selection: **{_display_metric(view.get('foreground_fraction_percent'))}** · "
+                f"minimum small-ROI-perturbation agreement: **{_display_metric(view.get('foreground_roi_stability_percent'))}**"
+            )
+            if view.get("foreground_mask_flags"):
+                st.caption(
+                    "Mask cautions: "
+                    + ", ".join(
+                        str(flag).replace("_", " ")
+                        for flag in view["foreground_mask_flags"]
+                    )
+                    + ". A plausible mask does not verify complete-object segmentation."
+                )
         for warning in view.get("warnings", []):
             st.caption(f"• {warning}")
         st.caption(
@@ -500,22 +558,39 @@ def _experimental_ridge_prediction(st: Any, report: Dict[str, Any]) -> None:
             if prediction.get("prediction_was_clipped")
             else ""
         )
+        st.warning(
+            "Independent CPU COLMAP validation on four uploaded videos found "
+            "substantial Ridge errors (MAE 58.74 percentage points). Treat this "
+            "estimate as an unreliable research diagnostic, not a success forecast."
+        )
+        if prediction.get("prediction_was_clipped"):
+            st.error(
+                "The displayed 100% is a clipped output ceiling. It is not 100% "
+                "confidence and does not imply that COLMAP will register all frames "
+                "or produce useful object geometry."
+            )
         st.markdown(
             f"""
             <div class="registration-panel">
-              <div class="eyebrow">Opt-in research preview · does not change either analyzer</div>
+              <div class="eyebrow">Independent diagnostic found substantial errors · does not change either analyzer</div>
               <h3>Experimental ML Registration Estimate</h3>
               <div class="registration-value">{percentage:.1f}%</div>
               <p>Estimated COLMAP image-registration percentage from the historical Ridge model.{clipped_note}</p>
-              <p><strong>Unvalidated live adapter:</strong> uploaded-video preprocessing has not been proven equivalent to the historical CO3D training inputs. No independent held-out evaluation was completed.</p>
-              <p>This is not a guarantee of reconstruction quality, object coverage or a successful 3D model.</p>
+              <p><strong>Observed live-video limitation:</strong> a four-video independent CPU COLMAP diagnostic produced MAE 58.74 percentage points, including three overpredictions greater than 60 points. The uploaded-video policy has not been proven equivalent to the historical CO3D training inputs.</p>
+              <p>This small diagnostic is not a statistically sufficient accuracy evaluation. Registration itself is not proof of object geometry, reconstruction completeness, object coverage or a successful 3D model.</p>
             </div>
             """,
             unsafe_allow_html=True,
         )
     elif status == "not_requested":
         st.caption(
-            "Experimental ML Registration Estimate was not requested. The heuristic result does not depend on it."
+            "Live Experimental ML Registration Estimate is disabled after independent "
+            "validation found substantial errors. The heuristic result does not depend on it."
+        )
+    elif status == "abstained":
+        st.error(
+            "The experimental Ridge model abstained from a live numeric prediction. "
+            + str(prediction.get("reason") or "Live-domain reliability is insufficient.")
         )
     else:
         st.markdown(
@@ -539,15 +614,22 @@ def _timeline(st: Any, rows: List[Dict[str, Any]]) -> None:
     types = list(dict.fromkeys(row["problem_type"] for row in rows))
     labels = {row["problem_type"]: row["label"] for row in rows}
     selected = st.multiselect(
-        "Filter detected problems", options=types, default=types, format_func=lambda value: labels[value]
+        "Filter diagnostics", options=types, default=types, format_func=lambda value: labels[value]
     )
     for row in [item for item in rows if item["problem_type"] in selected]:
         width = max(0.6, row["end_percent"] - row["start_percent"])
+        status = str(row.get("diagnostic_status", "detected")).replace("_", " ").title()
+        severity = (
+            f" · {row['severity'].title()}"
+            if row.get("diagnostic_status") != "not_measurable"
+            else ""
+        )
         st.markdown(
             f"""
             <div class="timeline-row">
-              <strong>{row['label']}</strong><span class="timeline-meta"> · {row['time_range']} · {row['severity'].title()}</span>
+              <strong>{html.escape(str(row['label']))}</strong><span class="timeline-meta"> · {row['time_range']} · {status}{severity}</span>
               <div class="timeline-meta">{row['what']}</div>
+              <div class="timeline-meta">{html.escape(str(row.get('confidence_reason', '')))}</div>
               <div class="timeline-track"><span class="timeline-span" style="left:{row['start_percent']}%;width:{width}%"></span></div>
             </div>
             """,
@@ -561,7 +643,7 @@ def _frame_gallery(st: Any, frames: List[Dict[str, Any]]) -> None:
         st.caption("No representative problem frame was available for this report.")
         return
     st.caption(
-        "A still can show blur or exposure directly. Motion and overlap labels describe the surrounding frame pair, not the still alone."
+        "A still can support manual review of visible edge smear and whole-frame exposure. The sharpness proxy cannot prove optical blur on smooth surfaces; motion and overlap labels describe frame pairs."
     )
     for offset in range(0, len(frames), 3):
         columns = st.columns(3)
@@ -583,6 +665,7 @@ def _recommendations(st: Any, rows: List[Dict[str, Any]]) -> None:
             f"""
             <div class="recommendation">
               <h4>{card['label']} · {card['where']}</h4>
+              <p><strong>Evidence:</strong> {str(card.get('diagnostic_status', 'detected')).replace('_', ' ').title()} — {card.get('confidence_reason', '')}</p>
               <p><strong>What:</strong> {card['what']}</p>
               <p><strong>Why it matters:</strong> {card['why']}</p>
               <p><strong>Record differently:</strong> {card['action']}</p>
@@ -817,6 +900,38 @@ def _representative_upload_frame(st: Any, upload: Any) -> Any:
                 pass
 
 
+def _foreground_preview_for_selection(
+    st: Any,
+    preview_rgb: Any,
+    object_bbox: List[float],
+    upload_digest: str,
+) -> Dict[str, Any]:
+    """Cache the exact tracker foreground prior for optional UI inspection."""
+
+    cache_key = (
+        upload_digest,
+        tuple(round(float(value), 6) for value in object_bbox),
+        TRACKER_IMPLEMENTATION_VERSION,
+    )
+    cached = st.session_state.get("foreground_mask_preview")
+    if cached and cached.get("cache_key") == cache_key:
+        return cached["result"]
+    import cv2
+
+    preview_bgr = cv2.cvtColor(preview_rgb, cv2.COLOR_RGB2BGR)
+    raw = build_foreground_mask_preview(preview_bgr, object_bbox)
+    result = {
+        "image_rgb": cv2.cvtColor(raw["image_bgr"], cv2.COLOR_BGR2RGB),
+        "diagnostics": raw["diagnostics"],
+        "note": raw["note"],
+    }
+    st.session_state["foreground_mask_preview"] = {
+        "cache_key": cache_key,
+        "result": result,
+    }
+    return result
+
+
 def _run_uploaded_diagnostics(st: Any, upload: Any, rows: List[Dict[str, Any]]) -> Any:
     buffer = upload.getbuffer()
     digest = hashlib.sha256(buffer).hexdigest()
@@ -888,6 +1003,7 @@ def _analysis_view(st: Any) -> None:
     include_experimental_ridge = False
     use_object_box = False
     object_bbox = None
+    show_foreground_preview = False
     with st.expander("Advanced viewpoint analysis", expanded=False):
         st.caption(
             "Experimental and separate from the suitability score. It adds long-gap geometric checks and may return Unknown when evidence is insufficient."
@@ -946,6 +1062,15 @@ def _analysis_view(st: Any) -> None:
                         st.caption(
                             "Verify that the box encloses the complete object, including moving parts."
                         )
+                    show_foreground_preview = st.checkbox(
+                        "Preview the foreground mask",
+                        value=False,
+                        key="advanced_foreground_mask_preview",
+                        help=(
+                            "Shows the exact reference mask used by object-focused tracking. "
+                            "A plausible preview is not proof that the complete object was segmented."
+                        ),
+                    )
                 if horizontal[1] - horizontal[0] < 5 or vertical[1] - vertical[0] < 5:
                     st.warning("The selected box must cover at least 5% in both dimensions.")
                     return
@@ -976,23 +1101,69 @@ def _analysis_view(st: Any) -> None:
                                 caption="Exact object-tracker initialization frame and selected region.",
                                 use_container_width=True,
                             )
+                            if show_foreground_preview:
+                                foreground_preview = _foreground_preview_for_selection(
+                                    st,
+                                    preview,
+                                    object_bbox,
+                                    hashlib.sha256(upload.getbuffer()).hexdigest(),
+                                )
+                                diagnostics = foreground_preview["diagnostics"]
+                                st.image(
+                                    foreground_preview["image_rgb"],
+                                    caption=(
+                                        "Foreground prior preview: admitted pixels are highlighted; "
+                                        "dimmed pixels are excluded."
+                                    ),
+                                    use_container_width=True,
+                                )
+                                mask_status = str(
+                                    diagnostics.get("mask_quality_status", "unknown")
+                                ).replace("_", " ").title()
+                                minimum_iou = diagnostics.get("roi_sensitivity", {}).get(
+                                    "minimum_mask_iou"
+                                )
+                                iou_text = (
+                                    f"{100.0 * float(minimum_iou):.0f}%"
+                                    if minimum_iou is not None
+                                    else "Not available"
+                                )
+                                st.caption(
+                                    f"Mask status: **{mask_status}** · foreground inside box: "
+                                    f"**{100.0 * float(diagnostics.get('foreground_fraction_within_box', 0.0)):.0f}%** · "
+                                    f"minimum small-ROI-perturbation agreement: **{iou_text}**"
+                                )
+                                flags = diagnostics.get("quality_flags", [])
+                                if flags:
+                                    st.warning(
+                                        "Mask cautions: "
+                                        + ", ".join(
+                                            str(flag).replace("_", " ")
+                                            for flag in flags
+                                        )
+                                        + ". Adjust the box to include the full object with a small background margin; do not optimize for tracking percentage."
+                                    )
+                                st.caption(foreground_preview["note"])
                         except Exception:
                             st.image(preview, use_container_width=True)
     with st.expander("Experimental ML Registration Estimate", expanded=False):
+        st.error(
+            "Independent live-video CPU COLMAP testing found substantial errors: "
+            "58.74 percentage-point MAE across four diagnostic videos. Three videos "
+            "were overpredicted by more than 60 points."
+        )
         st.warning(
-            "Research/demo mode only. The Ridge model achieved grouped-CV MAE 19.62 percentage points on historical experiments, but it had no independent held-out evaluation. The new uploaded-video adapter is not proven equivalent to the CO3D training-input pipeline."
+            "Research/demo mode only. Historical grouped-CV MAE was 19.62 percentage "
+            "points, but it did not transfer reliably in this small live-video test. "
+            "The uploaded-video adapter is not proven equivalent to the CO3D training-input pipeline."
         )
-        include_experimental_ridge = st.checkbox(
-            "Run the unvalidated experimental Ridge estimate",
-            value=False,
-            key="experimental_ridge_enabled",
-            help=(
-                "Adds separate CPU processing. It cannot change the heuristic score or "
-                "experimental viewpoint category and does not run COLMAP."
-            ),
+        st.info(
+            "Live numeric Ridge inference is disabled. The original artifact and "
+            "offline validation path are preserved for research comparison."
         )
+        include_experimental_ridge = False
         st.caption(
-            "The result estimates historical COLMAP image registration, not guaranteed reconstruction quality or surface coverage."
+            "A displayed 100% may be a clipped regression ceiling. It is not certainty and does not guarantee frame registration, reconstruction quality or surface coverage."
         )
     experimental_ridge_model_bytes = (
         _streamlit_ridge_model_bytes(st) if include_experimental_ridge else None
@@ -1110,8 +1281,8 @@ def _evaluation_view(st: Any) -> None:
     _section_heading(
         st,
         "Research evidence",
-        "Offline experimental ML comparison",
-        "Historical experiments are shown for transparency. Live Ridge inference is available only as an explicitly unvalidated opt-in preview.",
+        "Experimental ML evaluation",
+        "Historical grouped CV and the independent four-video diagnostic are shown separately. Live numeric Ridge inference is disabled.",
     )
     first, second, third = st.columns(3)
     first.metric("Best offline model", "Ridge")
@@ -1120,14 +1291,53 @@ def _evaluation_view(st: Any) -> None:
     st.markdown(
         """
         <div class="registration-panel">
-          <div class="eyebrow">Experimental live adapter available</div>
-          <h3>Evidence remains limited</h3>
-          <p>No independent held-out evaluation was completed, and uploaded-video preprocessing has not been proven equivalent to the historical CO3D training-input path. Ridge is therefore opt-in research/demo output only; Random Forest remains disabled.</p>
-          <p>Predicted image-registration percentage would not guarantee successful 3D reconstruction.</p>
+          <div class="eyebrow">Experimental live adapter · substantial independent errors observed</div>
+          <h3>Live Ridge estimates are not reliable success forecasts</h3>
+          <p>A four-video independent CPU COLMAP diagnostic found MAE 58.74 percentage points; three predictions overestimated registration by more than 60 points. This is too small to estimate general accuracy, but it demonstrates a serious live-domain limitation.</p>
+          <p>A displayed 100% can be a clipped regression ceiling. Registration percentage does not guarantee object-centered geometry, reconstruction completeness or successful 3D reconstruction. Live Ridge and Random Forest numeric inference are disabled.</p>
         </div>
         """,
         unsafe_allow_html=True,
     )
+    with st.expander("Independent four-video CPU COLMAP results", expanded=True):
+        st.dataframe(
+            [
+                {
+                    "Video": "WhatsApp video",
+                    "Ridge (%)": 100.000000,
+                    "COLMAP": "4 / 60",
+                    "Actual (%)": 6.666667,
+                    "Error (pp)": 93.333333,
+                },
+                {
+                    "Video": "front_only.mp4",
+                    "Ridge (%)": 100.000000,
+                    "COLMAP": "60 / 60",
+                    "Actual (%)": 100.000000,
+                    "Error (pp)": 0.000000,
+                },
+                {
+                    "Video": "good_orbit.mp4",
+                    "Ridge (%)": 84.750987,
+                    "COLMAP": "2 / 60",
+                    "Actual (%)": 3.333333,
+                    "Error (pp)": 81.417654,
+                },
+                {
+                    "Video": "waving_control.mp4",
+                    "Ridge (%)": 63.555943,
+                    "COLMAP": "2 / 60",
+                    "Actual (%)": 3.333333,
+                    "Error (pp)": 60.222610,
+                },
+            ],
+            use_container_width=True,
+            hide_index=True,
+        )
+        st.caption(
+            "Front-only 60/60 confirms image registration only. Object-centered "
+            "geometry was not verified for any of these four results."
+        )
     with st.expander("Offline grouped-CV results"):
         st.dataframe(
             [

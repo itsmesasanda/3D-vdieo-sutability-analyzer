@@ -79,7 +79,7 @@ def _capture_mode(viewpoint: Mapping[str, Any]) -> Dict[str, str]:
     ):
         return {
             "status": "object_motion_pattern",
-            "label": "Object-rotation / static-camera pattern",
+            "label": "Object-motion / static-background pattern",
             "reason": (
                 "Across several long-gap pairs, the selected object moves while "
                 "the surrounding background remains nearly static. This is "
@@ -123,12 +123,12 @@ def _capture_mode(viewpoint: Mapping[str, Any]) -> Dict[str, str]:
         and viewpoint.get("label") in {"Moderate", "High"}
     ):
         return {
-            "status": "camera_motion_pattern",
-            "label": "Camera-motion pattern",
+            "status": "shared_scene_motion_pattern",
+            "label": "Shared scene-motion pattern",
             "reason": (
                 "The object and background both move across several verified "
-                "long-gap pairs, with parallax-like support. This is more consistent "
-                "with camera motion than a fixed-camera turntable, but it does not prove a complete orbit."
+                "long-gap pairs, with non-homography image support. Camera motion is "
+                "one possible explanation, but physical translation and a complete orbit are not verified."
             ),
         }
 
@@ -170,6 +170,19 @@ def analyze_capture_completeness(
     reached_timeline_ends = bool(
         tracking.get("forward_reached_end") and tracking.get("backward_reached_start")
     )
+    foreground_raw = tracking.get("foreground_separation", {})
+    foreground = foreground_raw if isinstance(foreground_raw, Mapping) else {}
+    if foreground and not bool(
+        foreground.get("reliable_for_object_evidence", False)
+    ):
+        result = _unverified(
+            "Capture coverage not verified because the selected foreground mask is unstable, incomplete, or background-contaminated.",
+            analysis_mode=analysis_mode,
+        )
+        result["tracking_percent"] = (
+            round(100.0 * tracked_fraction) if tracked_fraction is not None else None
+        )
+        return result
     if tracked_fraction is None or tracked_fraction < 0.70:
         result = _unverified(
             primary_reason,
@@ -200,6 +213,17 @@ def analyze_capture_completeness(
             result["suggestions"] = [
                 "Object tracking alone is not enough: record more slowly with sharper focus and brighter diffuse light.",
                 "Repeat the lateral path after sharp object detail is visible in each view.",
+            ]
+        elif "global homography" in primary_reason.lower():
+            result["suggestions"] = [
+                "Image change is dominated by a planar/rotation model; it does not verify depth-bearing camera translation.",
+                "With a rigid object, add slow lateral camera displacement while preserving overlap and sharp object detail.",
+                "Do not interpret a rotating object or in-place camera pan as verified capture completeness.",
+            ]
+        elif "object animation" in primary_reason.lower() or "mixed" in primary_reason.lower():
+            result["suggestions"] = [
+                "Keep the object rigid and the background stable so independently moving regions do not mimic viewpoint change.",
+                "Repeat a slow overlapping lateral path; current image motion cannot identify the physical motion source.",
             ]
         # A static-background/object-motion pattern can explain why coverage is not
         # verified while still being useful capture-mode guidance. It remains

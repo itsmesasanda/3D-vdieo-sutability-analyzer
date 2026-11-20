@@ -1,5 +1,70 @@
 # Project status
 
+## Final heuristic-score consistency audit (2026-11-20)
+
+Resolved the apparent Phase 1/Phase 3 score conflict without changing code. The
+source video hashes are unchanged. Phase 1 and the Streamlit upload path use the
+production defaults of 32 samples at a 640-pixel maximum side, producing 78.54,
+60.00 and 48.51 for `IMG_3913`–`3915`. The Phase 3 object-tracking table used the
+explicit validation-runner defaults of 16 samples at 480 pixels, producing 60.75,
+51.26 and 49.94. Those were valid benchmark-mode scores but were insufficiently
+labeled in the Phase 3 report.
+
+Two same-process production reruns and a third fresh-process rerun reproduced every
+production score and subscore exactly. The Phase 3 report now presents production
+and tracking-benchmark scores in separate columns. No scoring calculation, weight,
+threshold, input video or runtime path changed.
+
+The focused integration, object-focus and deployment suite reported `33 passed in
+23.25s`. Streamlit deployment preflight and `git diff --check` passed.
+
+## Ridge failure diagnosis and safety repair (2026-11-20)
+
+The historical/live contract, serialized pipeline, raw outputs, feature
+distributions, grouped splits, target distribution and alternative regressors were
+audited. No feature-order, StandardScaler, sklearn, artifact-integrity or live
+12-versus-materialized-60 bug was found. The eight features and CO3D-to-smartphone
+domain shift are the limiting factors: stable lighting, low dark fraction and high
+ORB overlap drive predictions upward without establishing object support or useful
+camera baseline. A training-only 99th-percentile OOD gate flagged three live probes
+but missed the 93.33-point WhatsApp failure.
+
+`evaluation/ml/historical_registration_experiment/repair_diagnosis/` preserves the
+feature/distribution/model probes and full diagnosis. Retraining on the same 647 rows
+was rejected because the existing Ridge, Random Forest and Gradient Boosting probes
+all overpredict low-registration live videos and lack the missing evidence. No new
+artifact was created. Live numeric Ridge inference now abstains globally; the
+offline prepared-image path and original artifact are preserved. This changes no
+heuristic or geometry result.
+
+Verification: focused diagnosis/Ridge/deployment tests passed
+`32 passed in 105.53s`; deployment preflight passed; the full suite passed
+`133 passed, 2 skipped in 133.83s`. Both skips are the existing optional PyTorch
+training tests because PyTorch is absent from the CPU deployment environment.
+
+## Final four-video Ridge/COLMAP evaluation (2026-11-20)
+
+The completed independent CPU results were preserved in
+`evaluation/ml/independent_ridge_validation/final_validation_results.csv` and
+`FINAL_EVALUATION_REPORT.md`. Exact MAE is 58.743399 percentage points. Three of four
+Ridge estimates overpredicted registration by more than 60 points. The 60/60
+front-only result is explicitly limited to image registration; object-centered
+geometry remains unverified without the selected sparse model, camera trajectory,
+track/point statistics, prepared-frame hashes and object/background observation
+attribution.
+
+Streamlit now shows the independent error prominently before and after opt-in. A
+clipped 100% receives an explicit error banner explaining that it is a display
+ceiling rather than confidence or guaranteed success. The research-evidence view
+contains the four-row table. The downloadable Ridge result contains the diagnostic
+MAE and limitations. No heuristic score, geometric decision, feature calculation,
+model artifact or Random Forest gate changed.
+
+Verification: the focused final-evaluation/Ridge/deployment suite passed
+`26 passed in 127.95s`. The complete regression suite passed
+`130 passed, 2 skipped in 113.99s`; both skips are the existing optional PyTorch
+training tests because PyTorch is not installed in the CPU deployment environment.
+
 ## Independent Ridge/COLMAP Colab runner (2026-11-20)
 
 Added `notebooks/independent_ridge_colmap_validation_colab.ipynb`, a CPU-only thin
@@ -1968,4 +2033,85 @@ removed the background-layer parallax that previously inflated object evidence.
 Final `compileall` and `git diff --check` exited 0. The Streamlit deployment
 preflight reported PASS. The final complete regression suite reported `123 passed,
 2 skipped in 157.93s`; the two skips are the unchanged optional PyTorch tests.
+
+## Phase 1 scoring reliability and interpretation — implemented (2026-11-20)
+
+Kept heuristic v2.1 numerically frozen while separating technical capture quality
+from verified geometric readiness. High scores now render as, for example, “Strong
+technical capture quality — geometric readiness unverified” rather than an
+unqualified reconstruction-suitability claim. The JSON report adds conservative
+`result_interpretation` and `diagnostic_confidence` objects.
+
+Timestamped diagnostics now distinguish `detected`, `suspected`, and
+`not_measurable`. The Laplacian sharpness flag is presented as possible blur/low
+edge detail, especially when low texture co-occurs. Exposure is explicitly scoped
+to the whole frame, with object-only exposure unavailable without validated
+segmentation. Wide sample gaps no longer appear as confirmed shake or generate a
+priority retake card. Camera-motion wording was replaced by image-motion wording
+where the physical source cannot be identified. Reliable repeated-view evidence
+now warns that overlap is not new viewpoint or coverage evidence.
+
+The current analyzer and committed pre-change code produced identical scores on all
+eight available MP4/MOV samples: 55.00, 55.00, 59.15, 35.00, 78.54, 60.00, 48.51,
+and 44.00. Synthetic front-only, animated-object, partial/full orbit, stationary,
+and blurry viewpoint categories were preserved. The requested rice-cooker and
+waving-hand files were not present, so they were not claimed as rerun.
+
+The new pure interpretation helper averaged about 1.6 microseconds per call and adds
+no computer-vision work. The full suite reported `138 passed, 2 skipped in 121.67s`;
+the unchanged skips require optional Torch. Streamlit deployment preflight reported
+PASS. Details are in `docs/phase1_scoring_reliability.md`.
+
+## Phase 2 object tracking and foreground reliability — implemented (2026-11-20)
+
+Audited the one-frame GrabCut prior and found that its old 8–92% area check could
+call masks available despite two or three ROI-border contacts. Added measurable
+collapse/fill, component, center-support, extent, border-contact and frame-border
+diagnostics, plus bounded ±4% ROI-scale sensitivity. Perturbed ROIs are diagnostic
+only and are never selected by tracking coverage. Rejected masks conservatively
+force viewpoint Unknown.
+
+Streamlit now offers an optional exact-reference-mask preview with a prominent
+semantic limitation. Object ORB evidence uses an eroded foreground core;
+background evidence begins outside a dilated exclusion region, so the uncertain
+boundary band contributes to neither. Transition summaries now expose failures,
+reacquisition attempts and temporal sampling gaps.
+
+On the three identical real MOVs and manifest ROIs, tracking stayed at 1/16 and
+verified object geometry stayed zero. Two masks are now rejected and one warned;
+all remain Unknown/not verified. A 64-sample diagnostic reached only 1/64, 4/64 and
+5/64 with median verified geometry zero, so no intermediate-frame production change
+was justified. Synthetic classifications and heuristic scores were unchanged.
+Rice-cooker and waving-hand files remain unavailable. Full measurements and
+limitations are in `docs/phase2_object_tracking_reliability.md`.
+The final regression suite reported `141 passed, 2 skipped in 118.86s`; the skips
+require optional Torch. Streamlit deployment preflight and `git diff --check`
+reported PASS.
+
+## Phase 3 viewpoint and geometric-evidence reliability — implemented (2026-11-20)
+
+Audited multi-gap ORB/RANSAC interpretation without changing score or viewpoint
+thresholds. Existing gates already kept stationary/front-only Low and rejected
+rotation-only, animation, blur, planar foreground proxies and failed real tracking
+as Unknown. The missing reliability layer was semantic: abundant matches were not
+clearly separated from useful variation or physical motion.
+
+Each long-gap pair now has a role such as repeated-view continuity,
+planar/rotation ambiguity, mixed-motion ambiguity or non-homography change proxy.
+Reports and Streamlit separately present feature continuity, image-view variation,
+evidence scope and physical-motion status. Camera translation, orbit, rigidity and
+coverage remain explicitly unverified. Capture guidance now directly honors mask
+reliability and uses cautious planar/mixed/shared-scene wording.
+
+All synthetic and real classifications and heuristic scores were preserved. The
+three smartphone MOVs remain Unknown/not verified with zero accepted object
+geometry. The pure interpretation helper averaged 2.98 microseconds per call and
+adds no computer-vision work. Detailed results and the recommendation to freeze
+heuristic geometry pending physical reconstruction validation are in
+`docs/phase3_geometric_evidence_reliability.md`.
+
+Final compilation and `git diff --check` succeeded. The complete regression suite
+reported `145 passed, 2 skipped in 157.23s`; the two skips are the unchanged
+optional PyTorch training tests. Streamlit deployment preflight reported PASS for
+the entry point, dependencies, upload policy, FFmpeg and disabled live-ML policies.
 

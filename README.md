@@ -9,11 +9,17 @@ An optional middle-frame object box focuses this category on tracked object feat
 while preserving background matches as separate diagnostics.
 
 The public Streamlit deployment keeps Random Forest disabled behind its existing
-production parity gates. A separate, opt-in **experimental Ridge** preview can run
-only after the pinned historical artifact passes SHA-256, feature-order, estimator,
-and saved-prediction parity checks. Its uploaded-video adapter is a new inference
-policy and is not proven equivalent to the CO3D training-input generator, so the UI
-labels every output unvalidated and never mixes it into either analyzer.
+production parity gates. Live numeric **experimental Ridge** output is also disabled
+after failed independent validation. The pinned historical artifact, exact feature
+extractor and parity checks remain available for offline research; neither ML path
+can change the heuristic or geometric analyzer.
+
+Final independent CPU COLMAP diagnostics on four uploaded videos found Ridge MAE
+**58.74 percentage points**, with three overpredictions greater than 60 points. The
+one 60/60 registration match did not verify object-centered geometry. Live numeric
+Ridge inference is therefore disabled; the artifact remains available only for
+offline research and reproducibility. See the
+[final evaluation report](evaluation/ml/independent_ridge_validation/FINAL_EVALUATION_REPORT.md).
 
 A minimal offline independent diagnostic now prepares the same frozen 60 JPEGs for
 Ridge and CPU COLMAP, separates completed mapper failures from infrastructure
@@ -35,6 +41,12 @@ The production heuristic does **not** reconstruct a 3D model, upload the video, 
 claim an ML prediction by itself. A separate Milestone 3A experiment can run an installed
 COLMAP executable for reconstruction-grounded validation; it never changes the
 heuristic result. No production-validated ML artifact currently exists.
+
+The Streamlit headline intentionally separates the numerical technical-capture
+assessment from geometric readiness. For example, a high score with Unknown geometry
+is shown as **“Strong technical capture quality — geometric readiness unverified”**,
+not as a reconstruction-success claim. See the
+[Phase 1 reliability note](docs/phase1_scoring_reliability.md).
 
 ## Install
 
@@ -91,6 +103,13 @@ The box never changes the main suitability score. Object tracking combines
 forward/backward KLT, object-masked ORB re-detection, affine RANSAC, cycle checks,
 and one bounded post-occlusion reacquisition attempt. If these checks cannot retain
 the object across at least 70% of samples, the viewpoint result is `Unknown`.
+The reference GrabCut mask also reports area/component/border diagnostics and a
+bounded ±4% ROI-sensitivity check. Unstable masks force `Unknown`; alternate ROIs
+are never selected by tracking percentage. Streamlit can preview the exact reference
+mask, but a plausible preview is not proof of complete-object segmentation. Object
+features use an eroded foreground core, while the uncertain boundary band is
+excluded from both foreground and background evidence. See the
+[Phase 2 reliability report](docs/phase2_object_tracking_reliability.md).
 
 After a compatible final Random Forest artifact is installed, the CLI can attach
 its independent registration prediction:
@@ -114,6 +133,12 @@ video-suitability --video capture.mp4 --out report.json \
 The recovered translation is a unit direction only. Monocular two-view geometry
 does not recover metric scale.
 
+Viewpoint reports separately describe feature continuity, image-view variation,
+whole-frame versus tracked-region scope, and physical-motion uncertainty. Strong
+matches do not imply a new viewpoint; non-homography image geometry is not proof of
+camera translation. See the
+[Phase 3 geometric-evidence report](docs/phase3_geometric_evidence_reliability.md).
+
 If `--out` is omitted, JSON is written to stdout. Invalid/missing/undecodable videos return exit code 2 with a concise error on stderr.
 
 ## Report contract
@@ -127,9 +152,14 @@ The stable top-level fields are:
 - `overall_score`: bounded 0–100 v2 heuristic score.
 - `baseline_v1` and `score_comparison`: preserve the original formula and expose the exact before/after delta.
 - `confidence_or_uncertainty`: evidence level and limitations; this is not statistical confidence.
+- `result_interpretation`: separates technical capture quality from unverified
+  geometric/reconstruction readiness without changing the score.
+- `diagnostic_confidence`: defines and counts `detected`, `suspected`, and
+  `not_measurable` timestamped diagnostics.
 - `subscores`: visual quality, exposure/lighting, feature trackability, geometric consistency, and viewpoint motion.
 - `raw_metrics`: video/sampling metadata, per-frame quality, ORB keypoints, and adjacent-pair RANSAC metrics.
-- `problem_segments`: sampled evidence grouped into timestamped intervals.
+- `problem_segments`: sampled evidence grouped into timestamped intervals, with a
+  confidence class and measurement scope.
 - `recommendations`: capture changes tied to detected problems.
 - `warnings`: method limitations and degraded-analysis conditions.
 - `critical_failure_gate_evaluations`: every documented physical gate, whether it triggered, its evidence, and its maximum score.
@@ -147,9 +177,9 @@ The stable top-level fields are:
   predicted COLMAP registered-image percentage only after artifact hashes, target
   semantics, the exact eight-feature contract, and saved-training-example parity
   all pass. It never affects either heuristic result and does not run COLMAP.
-- `experimental_ridge_prediction` is the separate opt-in historical Ridge preview.
-  It records artifact integrity, exact ordered features, adapter policy/timings, and
-  the unresolved uploaded-video versus CO3D domain mismatch.
+- `experimental_ridge_prediction` records a live-domain abstention. The historical
+  artifact, exact ordered features and prepared-image prediction path remain
+  available only for offline validation and reproducibility.
 
 The overall score uses fixed, declared weights:
 
@@ -163,10 +193,17 @@ The overall score uses fixed, declared weights:
 
 V2 combines these using a weighted geometric mean so saturated appearance metrics cannot fully compensate for missing geometric/viewpoint evidence. Scores at or above 70 are labeled `likely_suitable`, scores from 45 to below 70 are `review_recommended`, and lower scores are `unlikely_suitable`. These thresholds remain engineering defaults, **not calibrated against independent reconstruction ground truth**. Documented caps cover insufficient temporal evidence, missing geometry, stationary views, reliable rotation/planar cues, persistent overlap loss, fast/irregular motion with continuity failures, severe exposure, and pervasive objectively severe blur.
 
+The legacy `suitability_label` remains in the JSON contract for compatibility. The
+UI does not present it as verified reconstruction readiness; all current geometric
+readiness remains unverified because no reconstruction is run.
+
 ## What is measured
 
 - Frames are sampled uniformly from the complete codec-declared frame range, not just from the beginning. Only downscaled samples are retained in memory.
-- Exposure, clipped pixels, contrast, Laplacian sharpness, gradient magnitude, and entropy are measured per frame.
+- Whole-frame exposure, clipped pixels, contrast, Laplacian edge detail, gradient
+  magnitude, and entropy are measured per frame. Low Laplacian response is a blur
+  proxy, not proof of optical blur on a smooth object. Object-only exposure is
+  unavailable without a validated foreground mask.
 - ORB features are matched between adjacent sampled frames. Fundamental-matrix RANSAC is preferred; homography RANSAC is an explicit fallback.
 - The viewpoint module reuses those ORB features, adds a bounded set of quarter-gap,
   half-gap, and endpoint pairs, and detects likely repeated views. Its uncalibrated
@@ -353,23 +390,12 @@ the work. Problem-frame rendering is deferred to a separate button. See
 - Branch: `main`
 - Application entry point: `app.py`
 - Recommended Python version: `3.11`
-- Secret for opt-in Ridge: `EXPERIMENTAL_RIDGE_ARTIFACT_B64` (optional)
 
 Commit and push the deployment files, then open `https://share.streamlit.io`, select
 **Create app**, choose the repository and `main` branch, and enter `app.py` as the
-file path. In Advanced settings select Python 3.11. Random Forest requires no secret
-and remains disabled. To enable only the opt-in experimental Ridge panel, generate a
-single-line value locally without committing the ignored model binary:
-
-```bash
-base64 -i evaluation/ml/historical_registration_experiment/historical_opencv8_v2/experimental_model.joblib | tr -d '\n'
-```
-
-Paste the output into the app's Secrets editor as:
-
-```toml
-EXPERIMENTAL_RIDGE_ARTIFACT_B64 = "PASTE_SINGLE_LINE_BASE64_HERE"
-```
+file path. In Advanced settings select Python 3.11. Random Forest and live numeric
+Ridge inference require no secret because both are disabled. Do not deploy the
+ignored historical model binary; it remains an offline research artifact.
 
 The app verifies the decoded bytes against the pinned SHA-256 before joblib is
 allowed to deserialize them. A missing, malformed or replaced secret produces a
@@ -400,7 +426,9 @@ streamlit run app.py --server.headless true
 
 After deployment, test one short MP4 and one iPhone/Android MOV. First leave both
 experimental options off and confirm the heuristic score and JSON. Then enable the
-Ridge preview and confirm it appears separately with the unvalidated warning.
+Ridge panel and confirm it states that live numeric inference is disabled after the
+four-video 58.74 pp MAE result. Preserved historical 100% outputs must be identified
+as clipped display ceilings, not confidence or guaranteed registration.
 Random Forest must remain unavailable.
 
 ## 4K performance

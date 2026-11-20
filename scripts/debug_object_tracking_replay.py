@@ -48,6 +48,11 @@ def replay(video: Path, bbox: Sequence[float]) -> Dict[str, Any]:
             "cycle_verified_step_fraction"
         ),
         "foreground_separation": tracking.get("foreground_separation"),
+        "feature_separation": tracking.get("feature_separation"),
+        "temporal_sampling_diagnostics": tracking.get(
+            "temporal_sampling_diagnostics"
+        ),
+        "transition_summary": tracking.get("transition_summary"),
         "tracker_settings": tracking.get("tracker_settings"),
         "sample_statuses": tracking.get("sample_statuses", []),
         "transition_attempts": tracking.get("steps", []),

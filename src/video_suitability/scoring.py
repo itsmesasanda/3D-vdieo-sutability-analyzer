@@ -211,6 +211,30 @@ def _group_frame_issues(frame_metrics: Sequence[Dict[str, Any]]) -> List[Dict[st
             first = frame_metrics[group[0]]
             last = frame_metrics[group[-1]]
             fraction = len(group) / total
+            diagnostic_status = "suspected" if issue == "blur" else "detected"
+            measurement_scope = (
+                "whole_frame" if issue in {"underexposure", "overexposure"} else "sampled_frame"
+            )
+            confidence_reason = "Thresholded image measurement was observed."
+            low_texture_overlap_fraction = None
+            if issue == "blur":
+                low_texture_overlap_fraction = float(
+                    np.mean(
+                        [
+                            "low_texture" in frame_metrics[position].get("issues", [])
+                            for position in group
+                        ]
+                    )
+                )
+                confidence_reason = (
+                    "The Laplacian edge-detail proxy is low, but it cannot distinguish "
+                    "optical blur from a naturally smooth or low-texture surface."
+                )
+            elif issue in {"underexposure", "overexposure"}:
+                confidence_reason = (
+                    "The threshold was measured over the whole frame; object-only "
+                    "exposure is not available without a validated foreground mask."
+                )
             segments.append(
                 {
                     "problem_type": issue,
@@ -221,6 +245,18 @@ def _group_frame_issues(frame_metrics: Sequence[Dict[str, Any]]) -> List[Dict[st
                     "end_frame_index": last["frame_index"],
                     "sample_count": len(group),
                     "severity": "high" if fraction >= 0.50 else "medium",
+                    "diagnostic_status": diagnostic_status,
+                    "measurement_scope": measurement_scope,
+                    "confidence_reason": confidence_reason,
+                    **(
+                        {
+                            "low_texture_overlap_fraction": round(
+                                low_texture_overlap_fraction, 6
+                            )
+                        }
+                        if low_texture_overlap_fraction is not None
+                        else {}
+                    ),
                 }
             )
     return segments
@@ -245,6 +281,27 @@ def _group_pair_issues(pair_metrics: Sequence[Dict[str, Any]]) -> List[Dict[str,
             first = pair_metrics[group[0]]
             last = pair_metrics[group[-1]]
             fraction = len(group) / total
+            if issue == "motion_sampling_gap_too_wide":
+                diagnostic_status = "not_measurable"
+                confidence_reason = (
+                    "The sample interval is too wide to measure high-frequency shake; "
+                    "this is an unavailable measurement, not a detected defect."
+                )
+            elif issue in {
+                "irregular_camera_motion",
+                "excessive_camera_speed",
+                "excessive_viewpoint_jump",
+                "little_viewpoint_change",
+                "homography_dominant_motion",
+            }:
+                diagnostic_status = "suspected"
+                confidence_reason = (
+                    "This is image-space motion evidence and cannot by itself identify "
+                    "camera translation, object rotation, or object animation."
+                )
+            else:
+                diagnostic_status = "detected"
+                confidence_reason = "Thresholded frame-pair evidence was observed."
             segments.append(
                 {
                     "problem_type": issue,
@@ -255,6 +312,9 @@ def _group_pair_issues(pair_metrics: Sequence[Dict[str, Any]]) -> List[Dict[str,
                     "end_frame_index": last["end_frame_index"],
                     "sample_pair_count": len(group),
                     "severity": "high" if fraction >= 0.50 else "medium",
+                    "diagnostic_status": diagnostic_status,
+                    "measurement_scope": "sampled_frame_pair",
+                    "confidence_reason": confidence_reason,
                 }
             )
     return segments
@@ -276,16 +336,16 @@ RECOMMENDATIONS = {
     "underexposure": "Add broad, diffuse light or raise exposure; keep the full object away from crushed shadows.",
     "overexposure": "Reduce exposure or soften direct light to preserve surface detail in highlights.",
     "low_contrast": "Use softer directional lighting and a contrasting background so surface features remain visible.",
-    "blur": "Move more slowly, stabilize the camera, and add light so a faster shutter can keep frames sharp.",
+    "blur": "Inspect visible object edges first: low edge detail can mean optical blur or a smooth surface. Retake more slowly with stabilization and added light only when edge smear is visible.",
     "low_texture": "Add removable visual markers nearby when acceptable, or improve side lighting to reveal surface texture; reflective/transparent objects remain difficult.",
     "insufficient_correspondence": "Keep the object larger in frame and capture textured, sharp views that feature matching can track.",
     "low_overlap": "Use smaller camera steps and keep roughly 60–80% of the previous view visible between frames.",
-    "little_viewpoint_change": "Orbit around the static object with lateral camera translation; do not record from one fixed viewpoint.",
+    "little_viewpoint_change": "The images change very little. If the object is static, add a slow lateral orbit; image-space evidence alone does not verify the physical motion source.",
     "excessive_viewpoint_jump": "Slow the orbit and avoid abrupt jumps so adjacent views retain trackable overlap.",
     "homography_dominant_motion": "Include lateral translation and views around depth-bearing parts of the object; rotation-only or nearly planar motion provides weak parallax evidence.",
     "low_track_retention": "Reduce camera speed and keep more of the previous view visible so feature tracks survive between frames.",
-    "excessive_camera_speed": "Move the camera more slowly and steadily; high image velocity makes track continuity and sharp capture less reliable.",
-    "irregular_camera_motion": "Use a steadier continuous orbit or stabilization; avoid direction reversals and sudden speed changes.",
+    "excessive_camera_speed": "Review whether high image velocity came from the camera or the object. For a static object, move the camera more slowly and steadily.",
+    "irregular_camera_motion": "Review whether the camera or object caused the irregular image motion. For a static object, use a steadier continuous orbit or stabilization.",
     "ambiguous_repetitive_features": "Include distinctive non-repeating surface context or temporary removable markers when appropriate; repetitive patterns can create ambiguous matches.",
 }
 

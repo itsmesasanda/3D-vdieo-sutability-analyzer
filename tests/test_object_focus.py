@@ -94,6 +94,10 @@ def test_object_and_background_evidence_are_reported_separately(
         and "evaluated" in pair
         for pair in background["pairs"]
     )
+    scope = result["geometric_evidence_interpretation"]["evidence_scope"]
+    assert scope["status"] == "tracked_object_region"
+    assert scope["object_region_isolation_status"] == "supported_image_region"
+    assert scope["object_specific_geometry_verified"] is False
 
 
 def test_untrackable_object_region_returns_unknown(synthetic_videos):
@@ -222,7 +226,9 @@ def test_hybrid_tracker_handles_moderate_scale_and_partial_occlusion():
         representative_position=0,
         config=config,
     )
-    assert tracking["tracker_version"] == "hybrid_klt_masked_orb_fb_v1"
+    assert tracking["tracker_version"] == (
+        "hybrid_klt_masked_orb_fb_v2_mask_quality"
+    )
     assert tracking["tracked_sample_fraction"] >= 0.70
     assert tracking["cycle_verified_step_fraction"] >= 0.70
     assert len(tracking["sample_statuses"]) == tracking["sample_count"]
@@ -249,6 +255,15 @@ def test_object_feature_redetection_is_masked_and_background_stays_separate(
     assert tracking["feature_separation"][
         "untracked_frames_have_object_features"
     ] is False
+    assert tracking["feature_separation"][
+        "uncertain_boundary_features_used_as_object_evidence"
+    ] is False
+    assert tracking["feature_separation"][
+        "uncertain_boundary_features_used_as_background_evidence"
+    ] is False
+    assert tracking["feature_separation"][
+        "median_uncertainty_band_feature_count"
+    ] >= 0
     background = result["background_diagnostics"]
     assert background["evaluated_pair_count"] >= 3
     assert all(
@@ -288,5 +303,81 @@ def test_foreground_separation_fallback_cannot_claim_object_coverage(
     result = report["viewpoint_diversity"]
     assert result["label"] == "Unknown"
     assert "could not be separated reliably" in result[
+        "decision_explanation"
+    ]["primary_reason"]
+
+
+def test_foreground_mask_quality_and_roi_sensitivity_are_explicit(
+    object_focused_reports,
+):
+    tracking = object_focused_reports["front_only"]["viewpoint_diversity"][
+        "object_tracking"
+    ]
+    mask = tracking["foreground_separation"]
+    assert mask["mask_quality_status"] in {"acceptable", "warning", "rejected"}
+    assert isinstance(mask["reliable_for_object_evidence"], bool)
+    assert 0 <= mask["foreground_fraction_within_box"] <= 1
+    assert 0 <= mask["roi_perimeter_contact_fraction"] <= 1
+    assert mask["roi_border_contact_side_count"] in range(5)
+    sensitivity = mask["roi_sensitivity"]
+    assert sensitivity["policy"] == "diagnostic_only_no_candidate_auto_selection"
+    assert sensitivity["status"] in {"stable", "sensitive", "unstable"}
+    assert len(sensitivity["variants"]) == 2
+    assert all(
+        "mask_iou_with_selected_roi" in variant
+        for variant in sensitivity["variants"]
+    )
+    assert "do not prove" in mask["quality_note"]
+
+
+def test_foreground_mask_preview_uses_tracker_policy(synthetic_videos):
+    import cv2
+
+    from video_suitability.object_focus import build_foreground_mask_preview
+
+    capture = cv2.VideoCapture(str(synthetic_videos["front_only"]))
+    capture.set(cv2.CAP_PROP_POS_FRAMES, 12)
+    ok, frame = capture.read()
+    capture.release()
+    assert ok
+    preview = build_foreground_mask_preview(frame, OBJECT_BOX)
+    assert preview["image_bgr"].shape == frame.shape
+    assert preview["mask"].shape == frame.shape[:2]
+    assert preview["diagnostics"]["method"] in {
+        "reference_grabcut_largest_component",
+        "bbox_only_fallback",
+    }
+    assert "does not prove" in preview["note"]
+
+
+def test_unreliable_but_plausible_mask_forces_unknown(
+    synthetic_videos, monkeypatch
+):
+    from video_suitability import object_focus
+
+    original = object_focus._reference_foreground_template
+
+    def unreliable_mask(frame, box):
+        mask, diagnostics = original(frame, box)
+        diagnostics = {
+            **diagnostics,
+            "available": True,
+            "reliable_for_object_evidence": False,
+            "mask_quality_status": "rejected",
+            "quality_flags": ["test_roi_instability"],
+        }
+        return mask, diagnostics
+
+    monkeypatch.setattr(
+        object_focus, "_reference_foreground_template", unreliable_mask
+    )
+    report = analyze_video(
+        str(synthetic_videos["front_only"]),
+        config=AnalysisConfig(max_samples=16, max_analysis_side=400),
+        object_bbox=OBJECT_BOX,
+    )
+    result = report["viewpoint_diversity"]
+    assert result["label"] == "Unknown"
+    assert "foreground mask is unstable or incomplete" in result[
         "decision_explanation"
     ]["primary_reason"]

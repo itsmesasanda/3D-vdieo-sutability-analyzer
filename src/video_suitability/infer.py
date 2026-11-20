@@ -13,6 +13,7 @@ from . import __version__
 from .capture_completeness import analyze_capture_completeness
 from .config import AnalysisConfig
 from .geometry import analyze_geometry, detect_orb_features
+from .interpretation import build_result_interpretation
 from .ml.registration_rf import attach_registration_prediction
 from .object_focus import analyze_object_focused_viewpoint, normalize_object_bbox
 from .quality import analyze_quality
@@ -206,13 +207,25 @@ def analyze_video(
         )
     if float(geometry_summary["irregular_camera_motion_pair_fraction"]) >= 0.40:
         warnings.append(
-            "Timestamp-normalized optical flow shows frequent direction or speed discontinuities consistent with unstable camera motion."
+            "Timestamp-normalized optical flow shows frequent image-space direction or speed discontinuities. The physical source (camera motion, object rotation, or animation) is unresolved."
         )
     if float(
         geometry_summary["motion_sampling_gap_too_wide_pair_fraction"]
     ) > 0:
         warnings.append(
             "Some uniform sample gaps exceed 0.30 seconds; high-frequency shake and LK track retention are unresolved there, so ORB continuity is used as a fallback."
+        )
+    quality_summary = quality["summary"]
+    if float(quality_summary.get("blur_and_low_texture_frame_fraction", 0.0)) > 0:
+        warnings.append(
+            "Some low-sharpness flags coincide with low texture. The Laplacian proxy cannot distinguish optical blur from a smooth object surface; inspect visible edges before retaking."
+        )
+    if max(
+        float(quality_summary.get("underexposed_frame_fraction", 0.0)),
+        float(quality_summary.get("overexposed_frame_fraction", 0.0)),
+    ) > 0:
+        warnings.append(
+            "Exposure flags are whole-frame measurements. Object-only exposure is unavailable because no validated foreground mask was used."
         )
     duration = sampled.metadata.get("duration_seconds")
     if duration is not None and duration > 30 and len(sampled.frames) <= cfg.max_samples:
@@ -237,6 +250,11 @@ def analyze_video(
             "insufficient_evidence_reasons", []
         ):
             warnings.append(f"Object-focused viewpoint evidence: {reason}")
+    repeated_intervals = viewpoint_diversity.get("repeated_view_intervals", [])
+    if isinstance(repeated_intervals, list) and repeated_intervals:
+        warnings.append(
+            "Repeated or near-identical long-gap views were detected. High adjacent overlap can support tracking, but it is not evidence of new object viewpoints or 3D coverage."
+        )
 
     try:
         capture_completeness = analyze_capture_completeness(viewpoint_diversity)
@@ -343,11 +361,31 @@ def analyze_video(
             ),
         },
         "problem_segments": problem_segments,
+        "diagnostic_confidence": {
+            "status_definitions": {
+                "detected": "A declared image or frame-pair threshold was observed.",
+                "suspected": "A proxy was observed, but the physical cause is ambiguous.",
+                "not_measurable": "Sampling or evidence was insufficient; this is not a confirmed defect.",
+            },
+            "segment_counts": {
+                status: sum(
+                    segment.get("diagnostic_status") == status
+                    for segment in problem_segments
+                )
+                for status in ("detected", "suspected", "not_measurable")
+            },
+            "sharpness_scope": "whole_frame_edge_detail_proxy",
+            "exposure_scope": "whole_frame",
+            "foreground_exposure_status": "not_available",
+            "physical_motion_source_status": "not_identified",
+            "affects_overall_score": False,
+        },
         "recommendations": recommendations,
         "warnings": list(dict.fromkeys(warnings)),
         "viewpoint_diversity": viewpoint_diversity,
         "capture_completeness": capture_completeness,
     }
+    report["result_interpretation"] = build_result_interpretation(report)
     if include_performance_profile:
         profile["total_wall_seconds"] = round(
             time.perf_counter() - total_wall_started, 6

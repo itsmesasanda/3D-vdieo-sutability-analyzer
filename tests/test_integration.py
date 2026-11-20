@@ -18,6 +18,8 @@ REQUIRED_TOP_LEVEL_KEYS = {
     "warnings",
     "viewpoint_diversity",
     "capture_completeness",
+    "result_interpretation",
+    "diagnostic_confidence",
 }
 
 
@@ -34,6 +36,8 @@ def test_reports_have_required_schema_and_bounded_scores(analysis_reports):
         assert report["scoring_version"] == "heuristic_v2"
         assert report["scoring_revision"] == "2.1"
         assert report["baseline_v1"]["scoring_version"] == "heuristic_v1"
+        assert report["result_interpretation"]["geometric_readiness"] == "unverified"
+        assert report["diagnostic_confidence"]["affects_overall_score"] is False
         assert report["score_comparison"]["baseline_v1_score"] == report[
             "baseline_v1"
         ]["overall_score"]
@@ -57,6 +61,88 @@ def test_known_synthetic_failures_reduce_score_and_are_timestamped(analysis_repo
         assert all(
             segment["end_time_seconds"] >= segment["start_time_seconds"]
             for segment in report["problem_segments"]
+        )
+
+
+def test_diagnostic_confidence_distinguishes_proxy_and_unavailable_measurement(
+    analysis_reports,
+):
+    blurry = analysis_reports["blurry"]
+    blur_segments = [
+        segment
+        for segment in blurry["problem_segments"]
+        if segment["problem_type"] == "blur"
+    ]
+    assert blur_segments
+    assert {segment["diagnostic_status"] for segment in blur_segments} == {
+        "suspected"
+    }
+    assert any(
+        recommendation.startswith("Inspect visible object edges first")
+        for recommendation in blurry["recommendations"]
+    )
+
+    from video_suitability.presentation import recommendation_cards, timeline_rows
+
+    report = {
+        "raw_metrics": {"video": {"duration_seconds": 2.0}},
+        "problem_segments": [
+            {
+                "problem_type": "motion_sampling_gap_too_wide",
+                "source": "orb_ransac_frame_pairs",
+                "start_time_seconds": 0.0,
+                "end_time_seconds": 1.0,
+                "start_frame_index": 0,
+                "end_frame_index": 10,
+                "sample_pair_count": 1,
+                "severity": "high",
+                "diagnostic_status": "not_measurable",
+                "measurement_scope": "sampled_frame_pair",
+                "confidence_reason": "Sampling gap is too wide.",
+            }
+        ],
+    }
+    rows = timeline_rows(report)
+    assert rows[0]["diagnostic_status"] == "not_measurable"
+    assert rows[0]["label"] == "High-frequency shake not measurable"
+    assert recommendation_cards(rows) == []
+
+
+def test_high_score_is_not_interpreted_as_verified_geometry(analysis_reports):
+    report = analysis_reports["smooth_orbit"]
+    assert report["overall_score"] >= 70
+    interpretation = report["result_interpretation"]
+    assert interpretation["technical_capture_level"] == "strong"
+    assert "geometric readiness unverified" in interpretation["headline"]
+    assert interpretation["affects_overall_score"] is False
+
+
+def test_exposure_warning_states_whole_frame_scope(analysis_reports):
+    dark = analysis_reports["dark"]
+    assert any(
+        "Exposure flags are whole-frame measurements" in warning
+        for warning in dark["warnings"]
+    )
+    underexposure = [
+        segment
+        for segment in dark["problem_segments"]
+        if segment["problem_type"] == "underexposure"
+    ]
+    assert underexposure
+    assert all(
+        segment["measurement_scope"] == "whole_frame"
+        and segment["diagnostic_status"] == "detected"
+        for segment in underexposure
+    )
+
+
+def test_repeated_views_are_explained_without_claiming_coverage(analysis_reports):
+    stationary = analysis_reports["stationary"]
+    intervals = stationary["viewpoint_diversity"].get("repeated_view_intervals", [])
+    if intervals:
+        assert any(
+            "not evidence of new object viewpoints" in warning
+            for warning in stationary["warnings"]
         )
 
 

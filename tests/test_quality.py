@@ -32,4 +32,23 @@ def test_quality_summary_has_fractions():
     result = analyze_quality([bright, normal], [0, 1], [0.0, 1.0])
     assert result["summary"]["overexposed_frame_fraction"] == 0.5
     assert len(result["frames"]) == 2
+    assert result["summary"]["exposure_measurement"]["scope"] == "whole_frame"
+    assert (
+        result["summary"]["exposure_measurement"]["foreground_status"]
+        == "not_available"
+    )
+
+
+def test_smooth_low_detail_is_not_presented_as_proven_optical_blur():
+    smooth = np.full((100, 140, 3), 128, dtype=np.uint8)
+    metric = measure_frame_quality(smooth, 4, 0.5)
+    assert "blur" in metric["issues"]
+    assert "low_texture" in metric["issues"]
+    assert metric["sharpness_proxy_status"] == "ambiguous_with_low_texture"
+
+    result = analyze_quality([smooth], [4], [0.5])
+    assert result["summary"]["blur_and_low_texture_frame_fraction"] == 1.0
+    assert "not proof of optical blur" in result["summary"][
+        "sharpness_measurement"
+    ]["interpretation"]
 

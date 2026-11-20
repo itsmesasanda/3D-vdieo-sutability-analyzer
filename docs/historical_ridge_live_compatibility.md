@@ -1,7 +1,7 @@
 # Historical Ridge experimental live-inference decision
 
-Decision: **safe for explicitly unvalidated, opt-in research/demo use; not a
-production-quality prediction**.
+Decision after independent testing: **live numeric inference is disabled; the
+artifact is retained only for offline research and reproducibility**.
 
 The exact historical eight-feature calculation remains in
 `historical_registration_features.py`. The new live policy first defines 60 unique,
@@ -43,6 +43,19 @@ observed; the concern is model/domain validity. Historical out-of-fold Ridge raw
 predictions ranged from -3.078 to 126.387 and 19/647 were outside 0–100, which is why
 live display applies the training artifact's declared 0–100 clipping policy.
 
-No independent held-out evaluation was completed. The five-fold GroupKFold MAE of
-19.6249 percentage points is the only model-selection evidence. Random Forest gates,
-heuristic scoring and geometric decisions are unchanged.
+The original model selection used five-fold GroupKFold MAE of 19.6249 percentage
+points and no independent held-out set. A later four-video independent CPU COLMAP
+diagnostic of the live adapter found MAE 58.743399 percentage points: Ridge/COLMAP
+were 100/6.67, 100/100, 84.750987/3.33 and 63.555943/3.33 percent. Three errors
+exceeded 60 percentage points. The 60/60 front-only registration result did not
+verify whether sparse geometry belonged to the object rather than the background or
+a degenerate planar/rotation configuration. See
+`evaluation/ml/independent_ridge_validation/FINAL_EVALUATION_REPORT.md`.
+
+This four-video study is too small for a general accuracy estimate, but it directly
+demonstrates poor live-domain calibration. Random Forest gates, heuristic scoring,
+geometric decisions and model artifacts are unchanged. A training-only
+out-of-distribution audit flagged three of the four live probes but missed the
+largest 93.33-point error, so selective unfamiliarity rejection was insufficient.
+The diagnosis and domain-level abstention decision are documented in
+`evaluation/ml/historical_registration_experiment/repair_diagnosis/DIAGNOSIS_REPORT.md`.

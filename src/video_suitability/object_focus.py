@@ -13,7 +13,7 @@ from .viewpoint import analyze_viewpoint_diversity
 
 NormalizedBox = Tuple[float, float, float, float]
 FeatureCache = Tuple[List[List[Any]], List[Optional[np.ndarray]]]
-TRACKER_IMPLEMENTATION_VERSION = "hybrid_klt_masked_orb_fb_v1"
+TRACKER_IMPLEMENTATION_VERSION = "hybrid_klt_masked_orb_fb_v2_mask_quality"
 
 
 def _cv2():
@@ -72,16 +72,26 @@ def _contains(point: Tuple[float, float], box: NormalizedBox, frame: np.ndarray)
     return x <= point[0] <= x + width and y <= point[1] <= y + height
 
 
-def _reference_foreground_template(
-    frame: np.ndarray, box: NormalizedBox
-) -> Tuple[np.ndarray, Dict[str, Any]]:
-    """Build one bounded foreground prior from the user-selected reference box.
+def _box_from_center_scale(box: NormalizedBox, scale: float) -> NormalizedBox:
+    """Return a clipped box perturbation used only for sensitivity diagnostics."""
 
-    GrabCut runs only on the representative frame. The resulting largest connected
-    component is warped with the tracked box; it is not rerun on every sample. This
-    keeps live CPU cost bounded while preventing obvious background pixels inside a
-    generous user box from becoming object-view evidence.
-    """
+    x, y, width, height = box
+    new_width = min(1.0, width * scale)
+    new_height = min(1.0, height * scale)
+    center_x = x + width / 2.0
+    center_y = y + height / 2.0
+    return (
+        max(0.0, min(1.0 - new_width, center_x - new_width / 2.0)),
+        max(0.0, min(1.0 - new_height, center_y - new_height / 2.0)),
+        new_width,
+        new_height,
+    )
+
+
+def _grabcut_foreground_crop(
+    frame: np.ndarray, box: NormalizedBox
+) -> Tuple[Optional[np.ndarray], Dict[str, Any]]:
+    """Run the existing one-iteration GrabCut policy and expose raw diagnostics."""
 
     cv2 = _cv2()
     frame_height, frame_width = frame.shape[:2]
@@ -91,18 +101,14 @@ def _reference_foreground_template(
     x1 = max(x0 + 2, min(frame_width, int(round(x + width))))
     y1 = max(y0 + 2, min(frame_height, int(round(y + height))))
     crop_height, crop_width = y1 - y0, x1 - x0
-    fallback = np.full((crop_height, crop_width), 255, dtype=np.uint8)
-    diagnostics: Dict[str, Any] = {
-        "method": "bbox_only_fallback",
-        "available": False,
-        "foreground_fraction_within_box": 1.0,
-        "reason": "grabcut_unavailable_or_implausible",
+    details: Dict[str, Any] = {
         "template_width": crop_width,
         "template_height": crop_height,
+        "pixel_bounds": [x0, y0, x1, y1],
     }
     if crop_width < 12 or crop_height < 12:
-        diagnostics["reason"] = "selected_box_too_small_for_foreground_prior"
-        return fallback, diagnostics
+        details["failure_reason"] = "selected_box_too_small_for_foreground_prior"
+        return None, details
 
     mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
     background_model = np.zeros((1, 65), np.float64)
@@ -119,7 +125,8 @@ def _reference_foreground_template(
             cv2.GC_INIT_WITH_RECT,
         )
     except cv2.error:
-        return fallback, diagnostics
+        details["failure_reason"] = "grabcut_error"
+        return None, details
     crop = mask[y0:y1, x0:x1]
     foreground = np.where(
         (crop == cv2.GC_FGD) | (crop == cv2.GC_PR_FGD), 255, 0
@@ -127,26 +134,281 @@ def _reference_foreground_template(
     count, labels, stats, _ = cv2.connectedComponentsWithStats(
         foreground, connectivity=8
     )
+    component_areas = stats[1:, cv2.CC_STAT_AREA] if count > 1 else np.asarray([])
+    total_component_area = int(component_areas.sum()) if len(component_areas) else 0
+    largest_component_area = int(component_areas.max()) if len(component_areas) else 0
     if count > 1:
-        largest = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+        largest = 1 + int(np.argmax(component_areas))
         foreground = np.where(labels == largest, 255, 0).astype(np.uint8)
     kernel = np.ones((3, 3), dtype=np.uint8)
     foreground = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, kernel)
     foreground = cv2.dilate(foreground, kernel, iterations=1)
-    fraction = float(np.mean(foreground > 0))
-    if fraction < 0.08 or fraction > 0.92:
-        diagnostics["foreground_fraction_within_box"] = round(fraction, 6)
+    details.update(
+        {
+            "connected_component_count_before_filter": max(0, count - 1),
+            "largest_component_fraction_before_filter": round(
+                largest_component_area / max(1, total_component_area), 6
+            ),
+        }
+    )
+    return foreground, details
+
+
+def _binary_mask_iou(first: np.ndarray, second: np.ndarray) -> float:
+    first_set = first > 0
+    second_set = second > 0
+    union = int(np.count_nonzero(first_set | second_set))
+    if union == 0:
+        return 0.0
+    return float(np.count_nonzero(first_set & second_set) / union)
+
+
+def _foreground_mask_shape_diagnostics(
+    foreground: np.ndarray,
+    box: NormalizedBox,
+    frame: np.ndarray,
+    component_details: Mapping[str, Any],
+) -> Dict[str, Any]:
+    """Describe collapse, fill, fragmentation, and ROI-edge contact."""
+
+    binary = foreground > 0
+    fraction = float(np.mean(binary))
+    side_contacts = {
+        "left": bool(np.any(binary[:, 0])),
+        "right": bool(np.any(binary[:, -1])),
+        "top": bool(np.any(binary[0, :])),
+        "bottom": bool(np.any(binary[-1, :])),
+    }
+    perimeter_pixels = max(1, 2 * foreground.shape[0] + 2 * foreground.shape[1] - 4)
+    contact_pixels = int(np.count_nonzero(binary[0, :])) + int(
+        np.count_nonzero(binary[-1, :])
+    )
+    if foreground.shape[0] > 2:
+        contact_pixels += int(np.count_nonzero(binary[1:-1, 0]))
+        contact_pixels += int(np.count_nonzero(binary[1:-1, -1]))
+    ys, xs = np.where(binary)
+    if len(xs):
+        component_width = int(xs.max() - xs.min() + 1)
+        component_height = int(ys.max() - ys.min() + 1)
+        component_box_area = component_width * component_height
+        rectangular_fill = float(len(xs) / max(1, component_box_area))
+        extent_width = component_width / max(1, foreground.shape[1])
+        extent_height = component_height / max(1, foreground.shape[0])
+    else:
+        rectangular_fill = 0.0
+        extent_width = 0.0
+        extent_height = 0.0
+    inner_y0, inner_y1 = foreground.shape[0] // 4, (3 * foreground.shape[0]) // 4
+    inner_x0, inner_x1 = foreground.shape[1] // 4, (3 * foreground.shape[1]) // 4
+    center = binary[inner_y0:inner_y1, inner_x0:inner_x1]
+    center_fraction = float(np.mean(center)) if center.size else 0.0
+    x, y, width, height = box
+    selection_frame_border_sides = [
+        name
+        for name, touched in {
+            "left": x <= 1e-6,
+            "right": x + width >= 0.999999,
+            "top": y <= 1e-6,
+            "bottom": y + height >= 0.999999,
+        }.items()
+        if touched
+    ]
+    side_count = sum(side_contacts.values())
+    perimeter_contact_fraction = contact_pixels / perimeter_pixels
+    largest_fraction = float(
+        component_details.get("largest_component_fraction_before_filter", 0.0)
+    )
+    flags: List[str] = []
+    severe: List[str] = []
+    if fraction < 0.08:
+        severe.append("mask_collapse")
+    if fraction > 0.92:
+        severe.append("mask_nearly_fills_roi")
+    elif fraction > 0.82:
+        flags.append("high_foreground_fill_may_include_background")
+    if largest_fraction < 0.65:
+        severe.append("fragmented_foreground_components")
+    if side_count:
+        flags.append("foreground_touches_roi_border_partial_object_risk")
+    if side_count >= 3 or perimeter_contact_fraction >= 0.35:
+        severe.append("excessive_roi_border_contact")
+    if selection_frame_border_sides:
+        flags.append("selection_touches_frame_border")
+    if center_fraction < 0.05:
+        severe.append("foreground_has_little_central_support")
+    flags = list(dict.fromkeys(flags + severe))
+    reliable = not severe
+    return {
+        "foreground_fraction_within_box": round(fraction, 6),
+        "connected_component_count_before_filter": int(
+            component_details.get("connected_component_count_before_filter", 0)
+        ),
+        "largest_component_fraction_before_filter": round(largest_fraction, 6),
+        "foreground_rectangular_fill": round(rectangular_fill, 6),
+        "foreground_extent_width_fraction": round(extent_width, 6),
+        "foreground_extent_height_fraction": round(extent_height, 6),
+        "foreground_center_fraction": round(center_fraction, 6),
+        "roi_perimeter_contact_fraction": round(perimeter_contact_fraction, 6),
+        "roi_border_contact_side_count": side_count,
+        "touches_left_border": side_contacts["left"],
+        "touches_right_border": side_contacts["right"],
+        "touches_top_border": side_contacts["top"],
+        "touches_bottom_border": side_contacts["bottom"],
+        "selection_frame_border_sides": selection_frame_border_sides,
+        "quality_flags": flags,
+        "mask_quality_status": (
+            "rejected" if severe else "warning" if flags else "acceptable"
+        ),
+        "reliable_for_object_evidence": reliable,
+        "quality_note": (
+            "Mask diagnostics identify instability risks; they do not prove that a visually plausible foreground is the complete object."
+        ),
+    }
+
+
+def _reference_foreground_template(
+    frame: np.ndarray, box: NormalizedBox
+) -> Tuple[np.ndarray, Dict[str, Any]]:
+    """Build one bounded foreground prior from the user-selected reference box.
+
+    GrabCut runs only on the representative frame. The resulting largest connected
+    component is warped with the tracked box; it is not rerun on every sample. This
+    keeps live CPU cost bounded while preventing obvious background pixels inside a
+    generous user box from becoming object-view evidence.
+    """
+
+    frame_height, frame_width = frame.shape[:2]
+    x, y, width, height = _pixel_box(box, frame)
+    x0 = max(0, min(frame_width - 2, int(round(x))))
+    y0 = max(0, min(frame_height - 2, int(round(y))))
+    x1 = max(x0 + 2, min(frame_width, int(round(x + width))))
+    y1 = max(y0 + 2, min(frame_height, int(round(y + height))))
+    crop_height, crop_width = y1 - y0, x1 - x0
+    fallback = np.full((crop_height, crop_width), 255, dtype=np.uint8)
+    diagnostics: Dict[str, Any] = {
+        "method": "bbox_only_fallback",
+        "available": False,
+        "foreground_fraction_within_box": 1.0,
+        "reason": "grabcut_unavailable_or_implausible",
+        "template_width": crop_width,
+        "template_height": crop_height,
+        "mask_quality_status": "rejected",
+        "reliable_for_object_evidence": False,
+        "quality_flags": ["grabcut_unavailable_or_implausible"],
+        "quality_note": (
+            "A bounding-box fallback may contain background and cannot verify object-specific evidence."
+        ),
+    }
+    if crop_width < 12 or crop_height < 12:
+        diagnostics["reason"] = "selected_box_too_small_for_foreground_prior"
+        diagnostics["quality_flags"] = [diagnostics["reason"]]
         return fallback, diagnostics
+
+    foreground, component_details = _grabcut_foreground_crop(frame, box)
+    if foreground is None:
+        diagnostics["reason"] = component_details.get(
+            "failure_reason", "grabcut_unavailable_or_implausible"
+        )
+        diagnostics["quality_flags"] = [diagnostics["reason"]]
+        return fallback, diagnostics
+    shape = _foreground_mask_shape_diagnostics(
+        foreground, box, frame, component_details
+    )
+    fraction = float(shape["foreground_fraction_within_box"])
+    if fraction < 0.08 or fraction > 0.92:
+        diagnostics.update(shape)
+        diagnostics["reason"] = "grabcut_mask_collapsed_or_filled_selection"
+        return fallback, diagnostics
+
+    cv2 = _cv2()
+    sensitivity_frame = frame
+    if max(frame.shape[:2]) > 240:
+        sensitivity_scale = 240.0 / max(frame.shape[:2])
+        sensitivity_frame = cv2.resize(
+            frame,
+            (
+                max(1, int(round(frame.shape[1] * sensitivity_scale))),
+                max(1, int(round(frame.shape[0] * sensitivity_scale))),
+            ),
+            interpolation=cv2.INTER_AREA,
+        )
+    base_full = _mask_for_box(sensitivity_frame, box, foreground)
+    perturbations = [
+        ("slightly_tighter", _box_from_center_scale(box, 0.96)),
+        ("slightly_looser", _box_from_center_scale(box, 1.04)),
+    ]
+    sensitivity_rows: List[Dict[str, Any]] = []
+    for name, candidate_box in perturbations:
+        candidate, candidate_details = _grabcut_foreground_crop(
+            sensitivity_frame, candidate_box
+        )
+        if candidate is None:
+            sensitivity_rows.append(
+                {
+                    "variant": name,
+                    "mask_available": False,
+                    "mask_iou_with_selected_roi": 0.0,
+                    "reason": candidate_details.get("failure_reason"),
+                }
+            )
+            continue
+        candidate_fraction = float(np.mean(candidate > 0))
+        candidate_available = 0.08 <= candidate_fraction <= 0.92
+        candidate_full = _mask_for_box(
+            sensitivity_frame, candidate_box, candidate
+        )
+        sensitivity_rows.append(
+            {
+                "variant": name,
+                "mask_available": candidate_available,
+                "mask_iou_with_selected_roi": round(
+                    _binary_mask_iou(base_full, candidate_full), 6
+                ),
+                "foreground_fraction_within_box": round(
+                    candidate_fraction, 6
+                ),
+            }
+        )
+    sensitivity_ious = [
+        float(row["mask_iou_with_selected_roi"]) for row in sensitivity_rows
+    ]
+    minimum_iou = min(sensitivity_ious) if sensitivity_ious else 0.0
+    if minimum_iou < 0.50:
+        sensitivity_status = "unstable"
+        shape["quality_flags"] = list(
+            dict.fromkeys(shape["quality_flags"] + ["roi_perturbation_unstable"])
+        )
+        shape["mask_quality_status"] = "rejected"
+        shape["reliable_for_object_evidence"] = False
+    elif minimum_iou < 0.70:
+        sensitivity_status = "sensitive"
+        shape["quality_flags"] = list(
+            dict.fromkeys(shape["quality_flags"] + ["roi_perturbation_sensitive"])
+        )
+        if shape["mask_quality_status"] == "acceptable":
+            shape["mask_quality_status"] = "warning"
+    else:
+        sensitivity_status = "stable"
     diagnostics.update(
         {
             "method": "reference_grabcut_largest_component",
             "available": True,
-            "foreground_fraction_within_box": round(fraction, 6),
             "reason": "reference_foreground_prior_available",
-            "touches_left_border": bool(np.any(foreground[:, 0] > 0)),
-            "touches_right_border": bool(np.any(foreground[:, -1] > 0)),
-            "touches_top_border": bool(np.any(foreground[0, :] > 0)),
-            "touches_bottom_border": bool(np.any(foreground[-1, :] > 0)),
+            **shape,
+            "roi_sensitivity": {
+                "policy": "diagnostic_only_no_candidate_auto_selection",
+                "status": sensitivity_status,
+                "minimum_mask_iou": round(minimum_iou, 6),
+                "median_mask_iou": round(
+                    float(np.median(sensitivity_ious)), 6
+                )
+                if sensitivity_ious
+                else None,
+                "stable_iou_threshold": 0.70,
+                "rejected_iou_threshold": 0.50,
+                "diagnostic_maximum_side": 240,
+                "variants": sensitivity_rows,
+            },
         }
     )
     return foreground, diagnostics
@@ -172,6 +434,42 @@ def _mask_for_box(
     mask = np.zeros((frame_height, frame_width), dtype=np.uint8)
     mask[y0:y1, x0:x1] = resized
     return mask
+
+
+def build_foreground_mask_preview(
+    frame_bgr: np.ndarray,
+    object_bbox: Union[Sequence[float], Mapping[str, float]],
+) -> Dict[str, Any]:
+    """Render the exact reference-mask policy for optional user inspection.
+
+    The preview is diagnostic only. Its appearance cannot validate that the mask is
+    the complete physical object.
+    """
+
+    box = normalize_object_bbox(object_bbox)
+    template, diagnostics = _reference_foreground_template(frame_bgr, box)
+    mask = _mask_for_box(frame_bgr, box, template)
+    overlay = frame_bgr.copy()
+    dimmed = np.clip(overlay.astype(np.float32) * 0.35, 0, 255).astype(np.uint8)
+    tint = overlay.copy()
+    tint[:, :, 1] = np.maximum(tint[:, :, 1], 120)
+    tint[:, :, 2] = np.maximum(tint[:, :, 2], 210)
+    foreground = mask > 0
+    rendered = dimmed
+    rendered[foreground] = np.clip(
+        0.65 * overlay[foreground].astype(np.float32)
+        + 0.35 * tint[foreground].astype(np.float32),
+        0,
+        255,
+    ).astype(np.uint8)
+    return {
+        "image_bgr": rendered,
+        "mask": mask,
+        "diagnostics": diagnostics,
+        "note": (
+            "This preview shows the pixels admitted to the reference foreground prior; visual plausibility does not prove complete-object segmentation."
+        ),
+    }
 
 
 def _expanded_box(box: NormalizedBox, scale: float = 1.65) -> NormalizedBox:
@@ -565,6 +863,10 @@ def _propagate_box_hybrid(
         ),
         "redetected_source_object_keypoints": len(source_keypoints),
         "redetected_target_search_keypoints": len(target_keypoints),
+        "candidate_rejection_reasons": [
+            f"orb:{orb['reason']}",
+            f"klt:{klt['reason']}",
+        ],
     }
     if orb_box is not None and klt_box is not None:
         agreement = _box_iou(orb_box, klt_box)
@@ -728,6 +1030,12 @@ def track_object_regions(
         item for item in propagation_steps if "cycle_verified" in item
     ]
     verified_cycles = [item for item in cycle_attempts if item["cycle_verified"]]
+    failure_reason_counts: Dict[str, int] = {}
+    for item in propagation_steps:
+        if item.get("status") == "tracked":
+            continue
+        reason = str(item.get("reason") or "unspecified_failure")
+        failure_reason_counts[reason] = failure_reason_counts.get(reason, 0) + 1
     sample_statuses: List[Dict[str, Any]] = []
     for position, tracked_box in enumerate(boxes):
         incoming = [
@@ -805,6 +1113,19 @@ def track_object_regions(
         else None,
         "foreground_separation": dict(foreground_diagnostics),
         "tracker_version": TRACKER_IMPLEMENTATION_VERSION,
+        "transition_summary": {
+            "attempt_count": len(propagation_steps),
+            "accepted_step_count": sum(
+                item.get("status") == "tracked" for item in propagation_steps
+            ),
+            "failed_step_count": sum(
+                item.get("status") != "tracked" for item in propagation_steps
+            ),
+            "reacquisition_attempt_count": sum(
+                int(item.get("sample_gap", 1)) > 1 for item in propagation_steps
+            ),
+            "failure_reason_counts": failure_reason_counts,
+        },
         "tracker_settings": {
             "orb_nfeatures": config.orb_features,
             "orb_fast_threshold": config.orb_fast_threshold,
@@ -817,7 +1138,7 @@ def track_object_regions(
             "klt_pyramid_max_level": 3,
             "cycle_iou_minimum": 0.40,
             "maximum_consecutive_failures": 2,
-            "foreground_template_policy": "reference_grabcut_largest_component",
+            "foreground_template_policy": "reference_grabcut_largest_component_with_quality_and_roi_stability_diagnostics",
         },
         "sample_statuses": sample_statuses,
         "steps": sorted(steps, key=lambda item: item["target_position"]),
@@ -839,6 +1160,10 @@ def build_region_feature_caches(
     background_keypoints: List[List[Any]] = []
     background_descriptors: List[Optional[np.ndarray]] = []
     locally_redetected_counts: List[int] = []
+    uncertainty_band_feature_counts: List[int] = []
+    foreground_core_fractions: List[float] = []
+    tracked_object_keypoint_counts: List[int] = []
+    tracked_uncertainty_band_feature_counts: List[int] = []
     for frame, frame_keypoints, frame_descriptors, raw_box in zip(
         frames, keypoints, descriptors, normalized_bboxes
     ):
@@ -852,14 +1177,53 @@ def build_region_feature_caches(
                 if foreground_template is not None
                 else np.full((32, 32), 255, dtype=np.uint8)
             )
-            object_mask = _mask_for_box(frame, box, template)
-            object_items = _detect_masked_orb(frame, object_mask, config)
+            warped_foreground = _mask_for_box(frame, box, template)
+            cv2 = _cv2()
+            kernel = np.ones((3, 3), dtype=np.uint8)
+            object_core = cv2.erode(warped_foreground, kernel, iterations=1)
+            if np.count_nonzero(object_core) < 0.50 * max(
+                1, np.count_nonzero(warped_foreground)
+            ):
+                object_core = warped_foreground
+            background_exclusion = cv2.dilate(
+                warped_foreground, kernel, iterations=2
+            )
+            object_items = _detect_masked_orb(frame, object_core, config)
             background_items = _subset_features_by_mask(
                 frame_keypoints,
                 frame_descriptors,
-                object_mask,
+                background_exclusion,
                 inside=False,
             )
+            shared_inside_exclusion = _subset_features_by_mask(
+                frame_keypoints,
+                frame_descriptors,
+                background_exclusion,
+                inside=True,
+            )
+            shared_inside_core = _subset_features_by_mask(
+                frame_keypoints,
+                frame_descriptors,
+                object_core,
+                inside=True,
+            )
+            foreground_core_fractions.append(
+                float(np.mean(object_core > 0))
+            )
+            uncertainty_band_feature_counts.append(
+                max(
+                    0,
+                    len(shared_inside_exclusion[0])
+                    - len(shared_inside_core[0]),
+                )
+            )
+            tracked_object_keypoint_counts.append(len(object_items[0]))
+            tracked_uncertainty_band_feature_counts.append(
+                uncertainty_band_feature_counts[-1]
+            )
+        if box is None:
+            foreground_core_fractions.append(0.0)
+            uncertainty_band_feature_counts.append(0)
         locally_redetected_counts.append(len(object_items[0]))
         object_keypoints.append(object_items[0])
         object_descriptors.append(object_items[1])
@@ -870,10 +1234,34 @@ def build_region_feature_caches(
         (background_keypoints, background_descriptors),
         {
             "method": "local_masked_orb_redetection",
+            "object_mask_policy": "one_pixel_eroded_foreground_core",
+            "background_mask_policy": "outside_two_pixel_dilated_foreground_exclusion",
+            "uncertain_boundary_features_used_as_object_evidence": False,
+            "uncertain_boundary_features_used_as_background_evidence": False,
             "median_object_keypoints": round(
                 float(np.median(locally_redetected_counts)), 6
             )
             if locally_redetected_counts
+            else 0.0,
+            "median_uncertainty_band_feature_count": round(
+                float(np.median(uncertainty_band_feature_counts)), 6
+            )
+            if uncertainty_band_feature_counts
+            else 0.0,
+            "median_tracked_object_keypoints": round(
+                float(np.median(tracked_object_keypoint_counts)), 6
+            )
+            if tracked_object_keypoint_counts
+            else 0.0,
+            "median_tracked_uncertainty_band_feature_count": round(
+                float(np.median(tracked_uncertainty_band_feature_counts)), 6
+            )
+            if tracked_uncertainty_band_feature_counts
+            else 0.0,
+            "median_foreground_core_frame_fraction": round(
+                float(np.median(foreground_core_fractions)), 6
+            )
+            if foreground_core_fractions
             else 0.0,
             "untracked_frames_have_object_features": False,
         },
@@ -1072,6 +1460,22 @@ def analyze_object_focused_viewpoint(
                 "maximum_analysis_side": config.max_analysis_side,
                 "representative_policy": "middle_decoded_uniform_sample",
             },
+            "temporal_sampling_diagnostics": {
+                "median_sample_gap_seconds": round(
+                    float(np.median(np.diff(timestamps_seconds))), 6
+                )
+                if len(timestamps_seconds) > 1
+                else None,
+                "maximum_sample_gap_seconds": round(
+                    float(np.max(np.diff(timestamps_seconds))), 6
+                )
+                if len(timestamps_seconds) > 1
+                else None,
+                "intermediate_tracking_frames_used": False,
+                "note": (
+                    "Object tracking currently follows the published uniformly sampled analysis frames. Large gaps can replace object appearance between steps."
+                ),
+            },
         }
     )
     object_features, background_features, feature_separation = build_region_feature_caches(
@@ -1115,10 +1519,21 @@ def analyze_object_focused_viewpoint(
             "insufficient_evidence_reasons", []
         )
     )
-    if not bool(tracking["foreground_separation"].get("available", False)):
+    foreground_separation = tracking["foreground_separation"]
+    if not bool(foreground_separation.get("available", False)):
         insufficient.insert(
             0,
             "The selected object foreground could not be separated reliably from background pixels inside the selection box.",
+        )
+    elif not bool(
+        foreground_separation.get("reliable_for_object_evidence", True)
+    ):
+        quality_flags = foreground_separation.get("quality_flags", [])
+        flag_text = ", ".join(str(flag).replace("_", " ") for flag in quality_flags)
+        insufficient.insert(
+            0,
+            "The selected foreground mask is unstable or incomplete enough that object-specific geometry cannot be trusted"
+            + (f" ({flag_text})." if flag_text else "."),
         )
     if float(tracking["tracked_sample_fraction"]) < 0.70:
         insufficient.insert(
@@ -1175,6 +1590,56 @@ def analyze_object_focused_viewpoint(
     result["method"]["object_bbox_used"] = True
     result["object_tracking"] = tracking
     result["background_diagnostics"] = background
+    interpretation_raw = result.get("geometric_evidence_interpretation", {})
+    interpretation = (
+        interpretation_raw if isinstance(interpretation_raw, dict) else {}
+    )
+    scope = interpretation.setdefault("evidence_scope", {})
+    mask_reliable = bool(
+        tracking.get("foreground_separation", {}).get(
+            "reliable_for_object_evidence", False
+        )
+    )
+    tracking_reliable = float(tracking["tracked_sample_fraction"]) >= 0.70
+    background_reliable = not (
+        background_dominated_fraction is not None
+        and float(background_dominated_fraction) >= 0.60
+    )
+    if mask_reliable and tracking_reliable and background_reliable:
+        isolation_status = "supported_image_region"
+        isolation_reason = (
+            "The selected foreground region is trackable and is not dominated by "
+            "the separately measured background evidence. This still does not "
+            "verify the complete physical object or camera motion."
+        )
+    elif not mask_reliable:
+        isolation_status = "mask_unreliable"
+        isolation_reason = (
+            "Foreground-mask diagnostics do not support reliable object-specific geometry."
+        )
+    elif not tracking_reliable:
+        isolation_status = "tracking_insufficient"
+        isolation_reason = (
+            "The selected region was not tracked across at least 70% of samples."
+        )
+    else:
+        isolation_status = "background_contaminated"
+        isolation_reason = (
+            "Background-only correspondences dominate the evaluated long-gap evidence."
+        )
+    scope.update(
+        {
+            "status": "tracked_object_region",
+            "label": "Tracked object-region evidence",
+            "object_region_isolation_status": isolation_status,
+            "object_region_isolation_reason": isolation_reason,
+            "object_specific_geometry_verified": False,
+        }
+    )
+    confounding = interpretation.setdefault("confounding_risks", [])
+    if isolation_status != "supported_image_region":
+        confounding.append(isolation_reason)
+    result["geometric_evidence_interpretation"] = interpretation
     result["whole_frame_context"] = {
         "median_keypoints_per_frame": full_frame_geometry["summary"].get(
             "median_keypoints_per_frame"

@@ -30,7 +30,8 @@ def test_report_to_timeline_recommendations_and_representative_frames(
     rows = timeline_rows(report)
     blur = [row for row in rows if row["problem_type"] == "blur"]
     assert blur
-    assert blur[0]["label"] == "Blurred frame"
+    assert blur[0]["label"] == "Possible blur / low edge detail"
+    assert blur[0]["diagnostic_status"] == "suspected"
     assert "repeatable local details" in blur[0]["why"]
     assert 0 <= blur[0]["start_percent"] <= blur[0]["end_percent"] <= 100
 
@@ -90,6 +91,8 @@ def test_score_panel_renders_current_and_baseline_without_streamlit_dependency(
     assert f"{report['overall_score']:.0f}" in fake.markup
     assert f"{report['baseline_v1']['overall_score']:.2f}" in fake.markup
     assert "success probability" in fake.markup
+    assert "geometric readiness unverified" in fake.markup
+    assert "Likely suitable" not in fake.markup
 
 
 def test_streamlit_app_renders_all_competition_views_without_exceptions():
@@ -175,7 +178,9 @@ def test_viewpoint_panel_marks_missing_optional_evidence_not_available():
 
     fake = _ViewpointRendererStub()
     app._viewpoint_diversity(fake, report)
-    assert fake.markup.count("Not available") == 4
+    assert fake.markup.count("Not available") == 7
+    assert "Physical camera/object motion" in fake.markup
+    assert "Not verified" in fake.markup
 
 
 def test_viewpoint_view_model_tolerates_missing_or_malformed_result():
@@ -198,7 +203,7 @@ def test_viewpoint_panel_tolerates_older_partial_presentation_schema(monkeypatch
     fake = _ViewpointRendererStub()
     app._viewpoint_diversity(fake, {"viewpoint_diversity": {}})
     assert "Partial legacy presentation payload" in fake.markup
-    assert fake.markup.count("Not available") == 4
+    assert fake.markup.count("Not available") == 7
 
     monkeypatch.setattr(app, "viewpoint_diversity_view", lambda _report: None)
     fallback = _ViewpointRendererStub()

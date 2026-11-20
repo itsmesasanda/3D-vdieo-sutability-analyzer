@@ -103,6 +103,29 @@ def test_object_selection_preview_matches_tracker_initialization_sample(
     ]
     assert max(preview.shape[:2]) <= AnalysisConfig().max_analysis_side
 
+    foreground = app._foreground_preview_for_selection(
+        st,
+        preview,
+        [0.25, 0.10, 0.50, 0.80],
+        "test-video-digest",
+    )
+    assert foreground["image_rgb"].shape == preview.shape
+    assert foreground["diagnostics"]["mask_quality_status"] in {
+        "acceptable",
+        "warning",
+        "rejected",
+    }
+    assert "does not prove" in foreground["note"]
+    assert (
+        app._foreground_preview_for_selection(
+            st,
+            preview,
+            [0.25, 0.10, 0.50, 0.80],
+            "test-video-digest",
+        )
+        is foreground
+    )
+
 
 def test_upload_report_records_tracker_input_and_runtime_provenance(
     synthetic_videos,

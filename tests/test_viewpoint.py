@@ -143,3 +143,53 @@ def test_viewpoint_ui_model_is_separate_and_actionable(analysis_reports):
     assert 0 <= view["parallax_proxy_percent"] <= 100
     assert 0 <= view["substantial_change_percent"] <= 100
 
+
+def test_overlap_is_interpreted_separately_from_viewpoint_change(
+    analysis_reports,
+):
+    front = analysis_reports["front_only"]["viewpoint_diversity"]
+    front_evidence = front["geometric_evidence_interpretation"]
+    assert front_evidence["feature_continuity"]["status"] == "strong"
+    assert front_evidence["viewpoint_change"]["status"] == "limited"
+    assert front["indicators"][
+        "temporally_separated_continuity_only_fraction"
+    ] >= 0.8
+    assert "does not demonstrate a new viewpoint" in front_evidence[
+        "feature_continuity"
+    ]["meaning"]
+
+    quarter = analysis_reports["quarter_orbit"]["viewpoint_diversity"]
+    quarter_evidence = quarter["geometric_evidence_interpretation"]
+    assert quarter_evidence["viewpoint_change"]["status"] == (
+        "multiple_image_views"
+    )
+    assert quarter_evidence["evidence_scope"]["status"] == "whole_frame_scene"
+    assert quarter_evidence["physical_motion"]["camera_translation_verified"] is False
+    assert quarter_evidence["physical_motion"]["camera_orbit_verified"] is False
+
+
+def test_pair_roles_expose_planar_animation_and_nonhomography_ambiguity(
+    analysis_reports,
+):
+    for name in ("front_only", "quarter_orbit", "full_orbit", "pure_rotation", "animated_object", "blurry"):
+        pairs = analysis_reports[name]["viewpoint_diversity"][
+            "temporally_separated_pair_evidence"
+        ]
+        assert pairs
+        assert all("geometric_evidence_role" in pair for pair in pairs)
+
+    rotation_roles = {
+        pair["geometric_evidence_role"]
+        for pair in analysis_reports["pure_rotation"]["viewpoint_diversity"][
+            "temporally_separated_pair_evidence"
+        ]
+    }
+    assert "planar_or_rotation_ambiguous" in rotation_roles
+    animated_roles = {
+        pair["geometric_evidence_role"]
+        for pair in analysis_reports["animated_object"]["viewpoint_diversity"][
+            "temporally_separated_pair_evidence"
+        ]
+    }
+    assert "mixed_motion_ambiguous" in animated_roles
+

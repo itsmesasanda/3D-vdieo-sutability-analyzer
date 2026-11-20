@@ -419,15 +419,15 @@ def _intrinsic_motion_indicator(
 def _classification_guidance(label: str) -> Tuple[str, List[str]]:
     if label == "High":
         return (
-            "Strong multi-view change is visible in the sampled sequence, with evidence that is not explained by one global planar transform.",
+            "Strong multi-view image change is visible in the sampled sequence, with evidence that is not explained by one global planar transform.",
             [
-                "Keep the object static and maintain the same slow, overlapping camera path.",
+                "Keep the object static and maintain the same slow, overlapping recording path.",
                 "Add a second elevation if top or underside geometry is important; this label does not prove complete object coverage.",
             ],
         )
     if label == "Moderate":
         return (
-            "Several distinct views and some parallax-like evidence are present, but the sampled path does not support a strong-diversity result.",
+            "Several distinct image views and some non-homography geometry are present, but the sampled path does not support a strong-diversity result.",
             [
                 "Continue farther around the object with small, overlapping lateral steps.",
                 "Include another elevation while keeping focus, exposure, and the object fixed.",
@@ -448,6 +448,135 @@ def _classification_guidance(label: str) -> Tuple[str, List[str]]:
             "Keep the object still; avoid an in-place pan or rotating only the camera, which can mimic viewpoint change without useful translation.",
         ],
     )
+
+
+def _geometric_evidence_interpretation(
+    *,
+    label: str,
+    analysis_mode: str,
+    indicators: Mapping[str, Any],
+    camera_intrinsics_used: bool,
+) -> Dict[str, Any]:
+    """Separate match continuity, image variation, and physical interpretation."""
+
+    valid_separated = float(
+        indicators.get("valid_separated_geometry_pair_fraction") or 0.0
+    )
+    median_verified = float(
+        indicators.get("median_separated_verified_matches") or 0.0
+    )
+    if valid_separated >= 0.70 and median_verified >= 20:
+        continuity_status = "strong"
+        continuity_label = "Strong feature continuity"
+    elif valid_separated >= 0.35 and median_verified >= 8:
+        continuity_status = "usable"
+        continuity_label = "Usable feature continuity"
+    else:
+        continuity_status = "insufficient"
+        continuity_label = "Insufficient feature continuity"
+
+    repeat_fraction = float(
+        indicators.get("temporally_separated_repeated_view_fraction") or 0.0
+    )
+    change_fraction = float(
+        indicators.get("temporally_separated_substantial_change_fraction") or 0.0
+    )
+    nonhomography_fraction = float(
+        indicators.get("temporally_separated_parallax_proxy_pair_fraction") or 0.0
+    )
+    ambiguous_change_fraction = float(
+        indicators.get("temporally_separated_ambiguous_change_fraction") or 0.0
+    )
+    if label in {"Moderate", "High"}:
+        variation_status = "multiple_image_views"
+        variation_label = (
+            "Broader image-view variation"
+            if label == "High"
+            else "Partial image-view variation"
+        )
+    elif label == "Low":
+        variation_status = "limited"
+        variation_label = "Limited image-view variation"
+    elif change_fraction >= 0.25:
+        variation_status = "ambiguous"
+        variation_label = "Image change detected, viewpoint meaning ambiguous"
+    else:
+        variation_status = "not_verified"
+        variation_label = "Viewpoint change not verified"
+
+    confounding_risks: List[str] = []
+    if analysis_mode != "object_focused":
+        confounding_risks.append(
+            "Whole-frame matches can be dominated by background or independently moving scene content."
+        )
+    if ambiguous_change_fraction >= 0.30:
+        confounding_risks.append(
+            "Many changed long-gap pairs are planar/rotation-dominant or contain mixed motion."
+        )
+    if repeat_fraction >= 0.50:
+        confounding_risks.append(
+            "Many long-gap pairs repeat nearly the same view despite usable feature matches."
+        )
+    if not camera_intrinsics_used:
+        confounding_risks.append(
+            "Camera intrinsics are unavailable, so calibrated relative-pose indicators are not computed."
+        )
+
+    return {
+        "feature_continuity": {
+            "status": continuity_status,
+            "label": continuity_label,
+            "valid_long_gap_pair_fraction": round(valid_separated, 6),
+            "median_verified_long_gap_matches": round(median_verified, 6),
+            "meaning": (
+                "Repeatable features persist between frames; this supports matching "
+                "but does not demonstrate a new viewpoint."
+            ),
+        },
+        "viewpoint_change": {
+            "status": variation_status,
+            "label": variation_label,
+            "classification": label,
+            "substantial_change_pair_fraction": round(change_fraction, 6),
+            "repeated_view_pair_fraction": round(repeat_fraction, 6),
+            "nonhomography_image_geometry_pair_fraction": round(
+                nonhomography_fraction, 6
+            ),
+            "ambiguous_change_pair_fraction": round(
+                ambiguous_change_fraction, 6
+            ),
+            "meaning": (
+                "This is categorical image-geometry evidence. It is not an orbit "
+                "angle, physical baseline, named-side, or surface-coverage measurement."
+            ),
+        },
+        "evidence_scope": {
+            "status": (
+                "tracked_object_region"
+                if analysis_mode == "object_focused"
+                else "whole_frame_scene"
+            ),
+            "label": (
+                "Tracked object-region evidence"
+                if analysis_mode == "object_focused"
+                else "Whole-frame scene evidence"
+            ),
+            "object_specific_geometry_verified": False,
+        },
+        "physical_motion": {
+            "status": "not_verified",
+            "camera_translation_verified": False,
+            "camera_orbit_verified": False,
+            "object_rigidity_verified": False,
+            "reason": (
+                "Two-view image geometry cannot by itself distinguish camera "
+                "translation, camera rotation, rigid object rotation, animation, "
+                "or moving background content."
+            ),
+        },
+        "confounding_risks": confounding_risks,
+        "affects_overall_score": False,
+    }
 
 
 def analyze_viewpoint_diversity(
@@ -526,6 +655,22 @@ def analyze_viewpoint_diversity(
         )
         pair["repeated_view_detected"] = _is_repeated_view(pair)
         pair["substantial_view_change_detected"] = _has_substantial_view_change(pair)
+        if pair["repeated_view_detected"]:
+            pair["geometric_evidence_role"] = "repeated_view_continuity"
+        elif pair["mixed_static_dynamic_evidence"]:
+            pair["geometric_evidence_role"] = "mixed_motion_ambiguous"
+        elif pair["strong_planar_or_rotation_evidence"]:
+            pair["geometric_evidence_role"] = "planar_or_rotation_ambiguous"
+        elif pair["parallax_proxy_detected"]:
+            pair["geometric_evidence_role"] = "nonhomography_change_proxy"
+        elif pair["substantial_view_change_detected"]:
+            pair["geometric_evidence_role"] = (
+                "change_without_nonhomography_support"
+            )
+        elif int(pair.get("verified_matches") or 0) >= 8:
+            pair["geometric_evidence_role"] = "continuity_only"
+        else:
+            pair["geometric_evidence_role"] = "insufficient_geometry"
         pair["viewpoint_descriptor_ambiguity_fraction"] = pair.get(
             "strict_descriptor_ambiguity_fraction"
         )
@@ -570,6 +715,22 @@ def analyze_viewpoint_diversity(
         pair
         for pair in separated_pairs
         if pair.get("mixed_static_dynamic_evidence", False)
+    ]
+    continuity_only_pairs = [
+        pair
+        for pair in separated_pairs
+        if pair["geometric_evidence_role"]
+        in {"repeated_view_continuity", "continuity_only"}
+    ]
+    ambiguous_change_pairs = [
+        pair
+        for pair in separated_pairs
+        if pair["geometric_evidence_role"]
+        in {
+            "mixed_motion_ambiguous",
+            "planar_or_rotation_ambiguous",
+            "change_without_nonhomography_support",
+        }
     ]
     evaluable_motion_field_pairs = [
         pair
@@ -660,6 +821,12 @@ def analyze_viewpoint_diversity(
         ),
         "temporally_separated_substantial_change_fraction": round(
             len(changed_separated) / separated_denominator, 6
+        ),
+        "temporally_separated_continuity_only_fraction": round(
+            len(continuity_only_pairs) / separated_denominator, 6
+        ),
+        "temporally_separated_ambiguous_change_fraction": round(
+            len(ambiguous_change_pairs) / separated_denominator, 6
         ),
         "parallax_proxy_pair_fraction": round(len(parallax_pairs) / pair_denominator, 6),
         "temporally_separated_parallax_proxy_pair_fraction": round(
@@ -814,12 +981,12 @@ def analyze_viewpoint_diversity(
             label = "High"
             classification_rule = "broad_change_with_parallax_proxy"
             primary_reason = (
-                "Many long-gap pairs show substantial view change with non-planar parallax-like support."
+                "Many long-gap pairs show substantial image change with non-homography geometry support."
             )
             supporting_evidence.extend(
                 [
                     f"Long-gap substantial-change fraction is {change_fraction:.3f}.",
-                    f"Long-gap parallax-proxy fraction is {parallax_fraction:.3f}.",
+                    f"Long-gap non-homography image-geometry proxy fraction is {parallax_fraction:.3f}.",
                 ]
             )
         elif (
@@ -830,19 +997,19 @@ def analyze_viewpoint_diversity(
             label = "Moderate"
             classification_rule = "partial_change_with_parallax_proxy"
             primary_reason = (
-                "Distinct object views and some parallax-like support are present, but evidence does not meet the High rule."
+                "Distinct image views and some non-homography geometry support are present, but evidence does not meet the High rule."
             )
             supporting_evidence.append(
-                f"Long-gap parallax-proxy fraction is {parallax_fraction:.3f}."
+                f"Long-gap non-homography image-geometry proxy fraction is {parallax_fraction:.3f}."
             )
         else:
             label = "Low"
             classification_rule = "inadequate_parallax_or_path_extent"
             primary_reason = (
-                "Geometric matches exist, but long-gap parallax or path extent is inadequate."
+                "Geometric matches exist, but long-gap non-homography support or path extent is inadequate."
             )
             limiting_evidence.append(
-                f"Long-gap parallax-proxy fraction is only {parallax_fraction:.3f}."
+                f"Long-gap non-homography image-geometry proxy fraction is only {parallax_fraction:.3f}."
             )
 
     warnings = [
@@ -870,13 +1037,19 @@ def analyze_viewpoint_diversity(
     summary, recommendations = _classification_guidance(label)
     if primary_reason:
         summary = f"{summary} Primary decision reason: {primary_reason}"
+    evidence_interpretation = _geometric_evidence_interpretation(
+        label=label,
+        analysis_mode=analysis_mode,
+        indicators=indicators,
+        camera_intrinsics_used=intrinsic_model is not None,
+    )
     return {
         "label": label,
         "evidence_status": "insufficient" if label == "Unknown" else "sufficient",
         "summary": summary,
         "method": {
             "name": "orb_ransac_multigap_viewpoint_heuristic",
-            "version": "1.1",
+            "version": "1.2",
             "trained_model_used": False,
             "colmap_run": False,
             "affects_overall_score": False,
@@ -891,6 +1064,7 @@ def analyze_viewpoint_diversity(
             "limiting_evidence": limiting_evidence,
             "insufficient_evidence_reasons": list(dict.fromkeys(insufficient_reasons)),
         },
+        "geometric_evidence_interpretation": evidence_interpretation,
         "indicators": indicators,
         "camera_intrinsics_at_analysis_resolution": (
             intrinsic_model.as_dict() if intrinsic_model is not None else None

@@ -2,7 +2,9 @@ import base64
 from pathlib import Path
 
 import app
+import pytest
 from video_suitability.ml.experimental_ridge import (
+    ExperimentalRidgeError,
     MODEL_SHA256,
     load_experimental_ridge,
     predict_experimental_ridge_registration,
@@ -47,7 +49,7 @@ def test_streamlit_secret_bytes_use_the_same_integrity_gated_loader():
     assert integrity["model_sha256"] == MODEL_SHA256
 
 
-def test_untrusted_model_bytes_are_rejected_before_deserialization(monkeypatch):
+def test_disabled_live_path_never_deserializes_supplied_model_bytes(monkeypatch):
     import joblib
 
     called = {"value": False}
@@ -60,26 +62,26 @@ def test_untrusted_model_bytes_are_rejected_before_deserialization(monkeypatch):
     result = predict_experimental_ridge_registration(
         ROOT / "data/samples/good_orbit.mp4", model_bytes=b"not-the-model"
     )
-    assert result["status"] == "unavailable"
-    assert "integrity check failed" in result["reason"]
+    assert result["status"] == "abstained"
+    assert "58.74 percentage-point MAE" in result["reason"]
     assert called["value"] is False
     assert result["trained_model_used"] is False
 
 
-def test_live_prediction_is_bounded_separate_and_unvalidated():
+def test_live_prediction_abstains_without_changing_other_analyzers():
     result = predict_experimental_ridge_registration(
         ROOT / "data/samples/good_orbit.mp4"
     )
-    assert result["status"] == "available"
-    assert 0.0 <= result["predicted_registration_percentage"] <= 100.0
-    assert tuple(result["features"]) == HISTORICAL_FEATURE_NAMES
+    assert result["status"] == "abstained"
+    assert result["live_numeric_prediction_enabled"] is False
+    assert "predicted_registration_percentage" not in result
     assert result["independently_validated"] is False
     assert result["affects_suitability_score"] is False
     assert result["affects_viewpoint_diversity"] is False
     assert result["colmap_run"] is False
 
 
-def test_regression_output_is_clipped_without_changing_raw_value(monkeypatch):
+def test_regression_output_is_clipped_without_changing_raw_value():
     from video_suitability.ml import experimental_ridge
 
     class ExtremeModel:
@@ -87,34 +89,64 @@ def test_regression_output_is_clipped_without_changing_raw_value(monkeypatch):
             assert values.shape == (1, 8)
             return [126.5]
 
-    monkeypatch.setattr(
-        experimental_ridge,
-        "load_experimental_ridge",
-        lambda **_kwargs: (ExtremeModel(), {"status": "verified"}),
-    )
-    monkeypatch.setattr(
-        experimental_ridge,
-        "extract_historical_features_from_uploaded_video",
-        lambda _path: (
-            {name: float(index) for index, name in enumerate(HISTORICAL_FEATURE_NAMES)},
-            {"adapter_status": "test"},
-        ),
-    )
-    result = experimental_ridge.predict_experimental_ridge_registration(
-        Path("unused-by-test.mp4")
+    result = {}
+    experimental_ridge._attach_available_prediction(
+        result,
+        ExtremeModel(),
+        {"status": "verified"},
+        {name: float(index) for index, name in enumerate(HISTORICAL_FEATURE_NAMES)},
+        {"adapter_status": "test"},
     )
     assert result["raw_prediction_percentage"] == 126.5
     assert result["predicted_registration_percentage"] == 100.0
     assert result["prediction_was_clipped"] is True
+    assert "clipped regression ceiling" in result["display_ceiling_warning"]
+    diagnostic = result["independent_live_video_diagnostic"]
+    assert diagnostic["video_count"] == 4
+    assert diagnostic["mae_percentage_points"] == 58.743399
+    assert diagnostic["statistically_sufficient"] is False
+    assert diagnostic["object_geometry_verified"] is False
+
+
+def test_streamlit_ridge_panel_prominently_discloses_independent_errors_and_clipping():
+    class FakeStreamlit:
+        def __init__(self):
+            self.warnings = []
+            self.errors = []
+            self.markdown_blocks = []
+
+        def warning(self, value):
+            self.warnings.append(value)
+
+        def error(self, value):
+            self.errors.append(value)
+
+        def markdown(self, value, **_kwargs):
+            self.markdown_blocks.append(value)
+
+    st = FakeStreamlit()
+    app._experimental_ridge_prediction(
+        st,
+        {
+            "experimental_ridge_prediction": {
+                "status": "available",
+                "predicted_registration_percentage": 100.0,
+                "raw_prediction_percentage": 130.0,
+                "prediction_was_clipped": True,
+            }
+        },
+    )
+
+    rendered = " ".join(st.warnings + st.errors + st.markdown_blocks)
+    assert "MAE 58.74 percentage points" in rendered
+    assert "clipped output ceiling" in rendered
+    assert "not 100% confidence" in rendered
+    assert "not proof of object geometry" in rendered
 
 
 def test_missing_artifact_fails_gracefully(tmp_path):
-    result = predict_experimental_ridge_registration(
-        ROOT / "data/samples/good_orbit.mp4", artifact_directory=tmp_path
-    )
-    assert result["status"] == "unavailable"
-    assert "manifest is missing" in result["reason"]
-    assert result["trained_model_used"] is False
+    with pytest.raises(ExperimentalRidgeError, match="manifest is missing"):
+        load_experimental_ridge(artifact_directory=tmp_path)
 
 
 def test_optional_inference_failure_cannot_change_main_report(

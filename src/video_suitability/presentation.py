@@ -14,12 +14,12 @@ from typing import Any, Dict, List, Mapping, Optional, Sequence
 
 SUBSCORE_PRESENTATION = {
     "visual_quality": (
-        "Image sharpness",
-        "Whether frames preserve crisp local detail instead of blur or weak contrast.",
+        "Image detail proxy",
+        "Measured edge detail and contrast; smooth surfaces can resemble optical blur.",
     ),
     "exposure_and_lighting": (
-        "Lighting & exposure",
-        "Whether surface detail remains visible without crushed shadows or clipped highlights.",
+        "Whole-frame exposure",
+        "Whole-frame brightness and clipping; object-only exposure is not segmented.",
     ),
     "feature_trackability": (
         "Feature tracking",
@@ -27,31 +27,31 @@ SUBSCORE_PRESENTATION = {
     ),
     "geometric_consistency": (
         "View overlap",
-        "Whether matched features agree geometrically across the sampled sequence.",
+        "Whether matched features agree geometrically; high overlap can still be repeated views.",
     ),
     "viewpoint_motion": (
-        "Camera path",
-        "Whether motion is steady, depth-bearing, and broad enough for multi-view reconstruction.",
+        "Image-motion evidence",
+        "Image-space regularity and motion proxies; camera translation is not identified.",
     ),
 }
 
 
 PROBLEM_GUIDANCE: Dict[str, Dict[str, str]] = {
     "blur": {
-        "label": "Blurred frame",
-        "what": "Fine edges and surface texture are smeared.",
+        "label": "Possible blur / low edge detail",
+        "what": "The sharpness proxy is low; this may be blur or a naturally smooth surface.",
         "why": "Reconstruction needs repeatable local details to match the same surface across views.",
-        "action": "Move more slowly, stabilize the phone, add light, and lock focus on the object.",
+        "action": "Inspect object edges at full size first. If they are visibly smeared, move more slowly, stabilize the phone, add light, and lock focus.",
     },
     "underexposure": {
-        "label": "Too dark",
-        "what": "Large image regions lose detail in shadow.",
+        "label": "Whole frame appears dark",
+        "what": "The whole-frame exposure proxy found extensive dark pixels; object-only exposure was not measured.",
         "why": "Feature detectors cannot recover texture that was clipped to near-black.",
         "action": "Add broad diffuse light or raise exposure while keeping highlights controlled.",
     },
     "overexposure": {
-        "label": "Too bright",
-        "what": "Highlights are clipped and surface detail is missing.",
+        "label": "Whole frame appears bright",
+        "what": "The whole-frame exposure proxy found extensive bright pixels; object-only exposure was not measured.",
         "why": "Uniform white regions provide few stable correspondences between views.",
         "action": "Reduce exposure and soften direct reflections with larger diffuse lights.",
     },
@@ -80,19 +80,19 @@ PROBLEM_GUIDANCE: Dict[str, Dict[str, str]] = {
         "action": "Slow down, keep the object centered, and preserve more overlap.",
     },
     "irregular_camera_motion": {
-        "label": "Camera shake",
-        "what": "Direction or speed changes abruptly between nearby views.",
+        "label": "Irregular image motion",
+        "what": "Image-space direction or speed changes abruptly between nearby views.",
         "why": "Shake increases blur and makes correspondence continuity less predictable.",
-        "action": "Use two hands or stabilization and follow one smooth, continuous orbit.",
+        "action": "Review whether the camera or object moved. For a static object, use stabilization and follow one smooth path.",
     },
     "excessive_camera_speed": {
-        "label": "Camera moving too fast",
+        "label": "High image velocity",
         "what": "Timestamp-normalized image motion is unusually high.",
         "why": "Fast motion causes blur and moves features too far for reliable tracking.",
         "action": "Slow the orbit and pause briefly if autofocus or exposure needs to settle.",
     },
     "excessive_viewpoint_jump": {
-        "label": "Abrupt viewpoint jump",
+        "label": "Abrupt image-space jump",
         "what": "Adjacent sampled views are separated by a large image-space jump.",
         "why": "Large jumps reduce shared content and can break geometric initialization.",
         "action": "Record a continuous path with smaller angular steps around the object.",
@@ -104,8 +104,8 @@ PROBLEM_GUIDANCE: Dict[str, Dict[str, str]] = {
         "action": "Keep the object larger, sharper, and well lit; include distinctive context.",
     },
     "little_viewpoint_change": {
-        "label": "Viewpoint barely changes",
-        "what": "The camera remains almost stationary between views.",
+        "label": "Little image-space change",
+        "what": "Nearby sampled images change very little; physical camera motion is not directly measured.",
         "why": "Triangulation needs a physical baseline, not repeated images from one position.",
         "action": "Move laterally around the static object instead of rotating in place.",
     },
@@ -122,7 +122,7 @@ PROBLEM_GUIDANCE: Dict[str, Dict[str, str]] = {
         "action": "Include distinctive context or temporary non-repeating markers when acceptable.",
     },
     "motion_sampling_gap_too_wide": {
-        "label": "High-frequency shake unresolved",
+        "label": "High-frequency shake not measurable",
         "what": "Uniform analysis samples are too far apart for short-gap shake measurement.",
         "why": "The score can assess ORB continuity, but cannot confirm frame-to-frame steadiness here.",
         "action": "Review the original interval manually; record a steady path at a consistent speed.",
@@ -206,11 +206,25 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
     raw_background = result.get("background_diagnostics", {})
     raw_method = result.get("method", {})
     raw_decision = result.get("decision_explanation", {})
+    raw_interpretation = result.get("geometric_evidence_interpretation", {})
     indicators = raw_indicators if isinstance(raw_indicators, Mapping) else {}
     tracking = raw_tracking if isinstance(raw_tracking, Mapping) else {}
+    raw_foreground = tracking.get("foreground_separation", {})
+    foreground = raw_foreground if isinstance(raw_foreground, Mapping) else {}
     background = raw_background if isinstance(raw_background, Mapping) else {}
     method = raw_method if isinstance(raw_method, Mapping) else {}
     decision = raw_decision if isinstance(raw_decision, Mapping) else {}
+    interpretation = (
+        raw_interpretation if isinstance(raw_interpretation, Mapping) else {}
+    )
+    continuity_raw = interpretation.get("feature_continuity", {})
+    change_raw = interpretation.get("viewpoint_change", {})
+    scope_raw = interpretation.get("evidence_scope", {})
+    physical_raw = interpretation.get("physical_motion", {})
+    continuity = continuity_raw if isinstance(continuity_raw, Mapping) else {}
+    change = change_raw if isinstance(change_raw, Mapping) else {}
+    scope = scope_raw if isinstance(scope_raw, Mapping) else {}
+    physical = physical_raw if isinstance(physical_raw, Mapping) else {}
     recommendations = result.get("recommendations", [])
     warnings = result.get("warnings", [])
     repeated_views = result.get("repeated_view_intervals", [])
@@ -241,12 +255,50 @@ def viewpoint_diversity_view(report: Dict[str, Any]) -> Dict[str, Any]:
         ),
         "analysis_mode": method.get("analysis_mode", "whole_frame"),
         "primary_reason": decision.get("primary_reason", ""),
+        "feature_continuity_label": continuity.get(
+            "label", "Not available"
+        ),
+        "feature_continuity_meaning": continuity.get("meaning", ""),
+        "viewpoint_change_label": change.get("label", "Not available"),
+        "viewpoint_change_meaning": change.get("meaning", ""),
+        "evidence_scope_label": scope.get("label", "Not available"),
+        "object_region_isolation_status": scope.get(
+            "object_region_isolation_status"
+        ),
+        "physical_motion_label": (
+            "Not verified"
+            if physical.get("status") in {None, "not_verified"}
+            else physical.get("status", "Not available")
+        ),
+        "physical_motion_reason": physical.get("reason", ""),
+        "confounding_risks": list(interpretation.get("confounding_risks", []))
+        if isinstance(interpretation.get("confounding_risks"), (list, tuple))
+        else [],
         "tracking_percent": _optional_percentage(
             tracking.get("tracked_sample_fraction")
         ),
         "tracking_cycle_verified_percent": _optional_percentage(
             tracking.get("cycle_verified_step_fraction")
         ),
+        "foreground_mask_status": foreground.get(
+            "mask_quality_status", "not_available"
+        ),
+        "foreground_mask_reliable": foreground.get(
+            "reliable_for_object_evidence"
+        ),
+        "foreground_fraction_percent": _optional_percentage(
+            foreground.get("foreground_fraction_within_box")
+        ),
+        "foreground_roi_stability_percent": _optional_percentage(
+            (
+                foreground.get("roi_sensitivity", {}).get("minimum_mask_iou")
+                if isinstance(foreground.get("roi_sensitivity"), Mapping)
+                else None
+            )
+        ),
+        "foreground_mask_flags": list(foreground.get("quality_flags", []))
+        if isinstance(foreground.get("quality_flags"), (list, tuple))
+        else [],
         "background_dominated_percent": _optional_percentage(
             background.get("background_dominated_pair_fraction")
         ),
@@ -381,6 +433,11 @@ def timeline_rows(report: Dict[str, Any]) -> List[Dict[str, Any]]:
             {
                 **segment,
                 **guidance,
+                "diagnostic_status": segment.get("diagnostic_status", "detected"),
+                "confidence_reason": segment.get(
+                    "confidence_reason",
+                    "This legacy report did not record diagnostic confidence.",
+                ),
                 "time_range": _time_range(start, end),
                 "representative_frame_index": representative_index,
                 "representative_time_seconds": round(representative_time, 6),
@@ -475,6 +532,8 @@ def extract_problem_frames(
 def recommendation_cards(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]:
     grouped: Dict[str, Dict[str, Any]] = {}
     for row in rows:
+        if row.get("diagnostic_status") == "not_measurable":
+            continue
         problem = row["problem_type"]
         if problem not in grouped:
             grouped[problem] = {
@@ -484,11 +543,15 @@ def recommendation_cards(rows: Sequence[Dict[str, Any]]) -> List[Dict[str, Any]]
                 "why": row["why"],
                 "action": row["action"],
                 "severity": row["severity"],
+                "diagnostic_status": row.get("diagnostic_status", "detected"),
+                "confidence_reason": row.get("confidence_reason", ""),
                 "time_ranges": [],
             }
         grouped[problem]["time_ranges"].append(row["time_range"])
         if row["severity"] == "high":
             grouped[problem]["severity"] = "high"
+        if row.get("diagnostic_status") == "suspected":
+            grouped[problem]["diagnostic_status"] = "suspected"
     cards = list(grouped.values())
     for card in cards:
         card["where"] = ", ".join(card.pop("time_ranges")[:5])
