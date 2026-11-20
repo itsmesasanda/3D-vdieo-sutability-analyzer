@@ -13,6 +13,7 @@ from .viewpoint import analyze_viewpoint_diversity
 
 NormalizedBox = Tuple[float, float, float, float]
 FeatureCache = Tuple[List[List[Any]], List[Optional[np.ndarray]]]
+TRACKER_IMPLEMENTATION_VERSION = "hybrid_klt_masked_orb_fb_v1"
 
 
 def _cv2():
@@ -96,6 +97,8 @@ def _reference_foreground_template(
         "available": False,
         "foreground_fraction_within_box": 1.0,
         "reason": "grabcut_unavailable_or_implausible",
+        "template_width": crop_width,
+        "template_height": crop_height,
     }
     if crop_width < 12 or crop_height < 12:
         diagnostics["reason"] = "selected_box_too_small_for_foreground_prior"
@@ -140,6 +143,10 @@ def _reference_foreground_template(
             "available": True,
             "foreground_fraction_within_box": round(fraction, 6),
             "reason": "reference_foreground_prior_available",
+            "touches_left_border": bool(np.any(foreground[:, 0] > 0)),
+            "touches_right_border": bool(np.any(foreground[:, -1] > 0)),
+            "touches_top_border": bool(np.any(foreground[0, :] > 0)),
+            "touches_bottom_border": bool(np.any(foreground[-1, :] > 0)),
         }
     )
     return foreground, diagnostics
@@ -721,6 +728,60 @@ def track_object_regions(
         item for item in propagation_steps if "cycle_verified" in item
     ]
     verified_cycles = [item for item in cycle_attempts if item["cycle_verified"]]
+    sample_statuses: List[Dict[str, Any]] = []
+    for position, tracked_box in enumerate(boxes):
+        incoming = [
+            item
+            for item in propagation_steps
+            if int(item.get("target_position", -1)) == position
+        ]
+        accepted = next(
+            (item for item in incoming if item.get("status") == "tracked"), None
+        )
+        latest = accepted or (incoming[-1] if incoming else None)
+        sample_statuses.append(
+            {
+                "sample_position": position,
+                "status": (
+                    "selected"
+                    if position == reference
+                    else "tracked"
+                    if tracked_box is not None
+                    else "untracked"
+                ),
+                "normalized_bbox": (
+                    [round(value, 6) for value in tracked_box]
+                    if tracked_box is not None
+                    else None
+                ),
+                "incoming_attempt_count": len(incoming),
+                "incoming_tracker_method": (
+                    latest.get("tracker_method") if latest is not None else None
+                ),
+                "incoming_reason": (
+                    latest.get("reason") if latest is not None else None
+                ),
+                "object_correspondences": (
+                    max(
+                        int(latest.get("orb_ratio_test_matches") or 0),
+                        int(latest.get("klt_forward_backward_points") or 0),
+                    )
+                    if latest is not None
+                    else None
+                ),
+                "ransac_inliers": (
+                    max(
+                        int(latest.get("orb_ransac_inliers") or 0),
+                        int(latest.get("klt_ransac_inliers") or 0),
+                    )
+                    if latest is not None
+                    else None
+                ),
+                "cycle_verified": (
+                    latest.get("cycle_verified") if latest is not None else None
+                ),
+            }
+        )
     return {
         "representative_sample_position": reference,
         "initial_normalized_bbox": [round(value, 6) for value in box],
@@ -743,7 +804,22 @@ def track_object_regions(
         if verified_cycles
         else None,
         "foreground_separation": dict(foreground_diagnostics),
-        "tracker_version": "hybrid_klt_masked_orb_fb_v1",
+        "tracker_version": TRACKER_IMPLEMENTATION_VERSION,
+        "tracker_settings": {
+            "orb_nfeatures": config.orb_features,
+            "orb_fast_threshold": config.orb_fast_threshold,
+            "orb_ratio_test": config.ratio_test,
+            "ransac_reprojection_threshold_px": config.ransac_reprojection_threshold_px,
+            "klt_max_corners": 350,
+            "klt_quality_level": 0.008,
+            "klt_min_distance_px": 4,
+            "klt_window_size_px": [31, 31],
+            "klt_pyramid_max_level": 3,
+            "cycle_iou_minimum": 0.40,
+            "maximum_consecutive_failures": 2,
+            "foreground_template_policy": "reference_grabcut_largest_component",
+        },
+        "sample_statuses": sample_statuses,
         "steps": sorted(steps, key=lambda item: item["target_position"]),
     }
 
@@ -970,6 +1046,33 @@ def analyze_object_focused_viewpoint(
         config=config,
         foreground_template=foreground_template,
         foreground_diagnostics=foreground_diagnostics,
+    )
+    tracking.update(
+        {
+            "representative_source_frame_index": int(
+                frame_indices[representative_position]
+            ),
+            "representative_timestamp_seconds": round(
+                float(timestamps_seconds[representative_position]), 6
+            ),
+            "sampled_source_frame_indices": [int(value) for value in frame_indices],
+            "sampled_timestamps_seconds": [
+                round(float(value), 6) for value in timestamps_seconds
+            ],
+            "analysis_frame_width": int(frames[representative_position].shape[1]),
+            "analysis_frame_height": int(frames[representative_position].shape[0]),
+            "initial_pixel_bbox_at_analysis_resolution": [
+                round(float(value), 3)
+                for value in _pixel_box(
+                    normalized_box, frames[representative_position]
+                )
+            ],
+            "analysis_sampling_settings": {
+                "maximum_samples": config.max_samples,
+                "maximum_analysis_side": config.max_analysis_side,
+                "representative_policy": "middle_decoded_uniform_sample",
+            },
+        }
     )
     object_features, background_features, feature_separation = build_region_feature_caches(
         frames,

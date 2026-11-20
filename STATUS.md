@@ -1,5 +1,39 @@
 # Project status
 
+## Rice-cooker tracker reproducibility fix (2026-11-20)
+
+The inconsistent 100%, 50%, and 16% object-tracking reports were investigated on
+the same local rice-cooker file. Its SHA256 is
+`bf90a2d662b2465e897ff2347792063f59a1a0c8ed8274d6e4022087e1e7783b` (3,228,212
+bytes). The 100% local run used normalized ROI `[0.20, 0.10, 0.55, 0.82]`; the
+Streamlit defaults are `[0.25, 0.10, 0.50, 0.80]`, which yield 1/32 accepted
+samples on this file. ROI `[0.23, 0.08, 0.53, 0.84]` reproduces 5/32 (15.625%).
+Thus these were not identical tracker inputs. The reference GrabCut foreground
+prior changes substantially between these boxes; the 100% mask touches its left
+selection border and is not evidence that the entire cooker was tracked accurately.
+
+The Streamlit preview also used source frame 119 at 720x405 while analysis
+initialized tracking on uniform sample source frame 123 at 640x360. The preview
+now decodes the exact analysis sample and size; a pixel comparison on the real file
+was identical (`max_abs_diff=0`). Reports now contain video SHA, byte count, ROI,
+sample indices, analysis dimensions, tracker settings, Git/source identity, and
+per-sample/per-transition diagnostics. The session cache now includes tracker/code
+identity, preventing a stale pre-deploy result from being reused after code changes.
+No tracking threshold, heuristic score, ML feature, or model was changed.
+
+An exact Streamlit replay can be run with:
+
+```bash
+.venv/bin/python scripts/debug_object_tracking_replay.py \
+  --video /path/to/video.mp4 \
+  --bbox 0.23,0.08,0.53,0.84 \
+  --out /tmp/object-tracking-replay.json
+```
+
+Focused verification: `18 passed in 22.27s`. Full regression verification:
+`125 passed, 2 skipped in 371.45s`; both skips are the existing optional PyTorch
+tests because PyTorch is not installed in the CPU deployment environment.
+
 ## Milestone 1 — complete (2026-11-17)
 
 The repository now has a complete CPU-only heuristic path from local MP4 input to a JSON suitability report. It does not require CO3D, COLMAP, PyTorch, a GPU, or trained weights.

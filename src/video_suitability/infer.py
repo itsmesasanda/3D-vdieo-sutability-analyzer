@@ -16,6 +16,7 @@ from .geometry import analyze_geometry, detect_orb_features
 from .ml.registration_rf import attach_registration_prediction
 from .object_focus import analyze_object_focused_viewpoint, normalize_object_bbox
 from .quality import analyze_quality
+from .runtime_provenance import runtime_provenance
 from .scoring import (
     build_problem_segments,
     recommendations_for,
@@ -276,6 +277,7 @@ def analyze_video(
     report: Dict[str, Any] = {
         "schema_version": "1.0",
         "analysis_method": ANALYSIS_METHOD,
+        "runtime_provenance": runtime_provenance(),
         "scoring_version": score["scoring_version"],
         "scoring_revision": score["scoring_revision"],
         "overall_score": score["overall_score"],

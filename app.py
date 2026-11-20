@@ -12,6 +12,7 @@ import time
 from pathlib import Path
 from typing import Any, Dict, List
 
+from video_suitability.config import AnalysisConfig
 from video_suitability.infer import analyze_video
 from video_suitability.ml.experimental_ridge import (
     MODEL_SHA256 as EXPERIMENTAL_RIDGE_MODEL_SHA256,
@@ -28,6 +29,9 @@ from video_suitability.presentation import (
     timeline_rows,
     viewpoint_diversity_view,
 )
+from video_suitability.object_focus import TRACKER_IMPLEMENTATION_VERSION
+from video_suitability.runtime_provenance import runtime_provenance
+from video_suitability.video import uniform_sample_indices
 
 
 MAX_UPLOAD_MB = 150
@@ -43,6 +47,20 @@ ALLOWED_VIDEO_SUFFIXES = {
     ".mpeg",
 }
 STREAMLIT_ML_IDENTITY = ("random_forest_disabled", "deployment_2026_11")
+OBJECT_SELECTION_PREVIEW_POLICY = "middle_decoded_uniform_sample_v2"
+
+
+def _analysis_cache_identity() -> Any:
+    """Invalidate session results when the analyzer/tracker implementation changes."""
+
+    provenance = runtime_provenance()
+    return (
+        "streamlit_analysis_v2",
+        TRACKER_IMPLEMENTATION_VERSION,
+        provenance.get("object_tracker_source_sha256"),
+        provenance.get("inference_source_sha256"),
+        OBJECT_SELECTION_PREVIEW_POLICY,
+    )
 
 
 def _disabled_registration_prediction() -> Dict[str, Any]:
@@ -612,6 +630,28 @@ def _analyze_upload_payload(
             include_performance_profile=True,
             include_viewpoint_diversity=include_viewpoint_diversity,
         )
+        video_digest = hashlib.sha256(buffer).hexdigest()
+        tracking = report.get("viewpoint_diversity", {}).get(
+            "object_tracking", {}
+        )
+        report["streamlit_input_provenance"] = {
+            "uploaded_filename": filename,
+            "video_sha256": video_digest,
+            "video_byte_count": len(buffer),
+            "selected_object_bbox_normalized": (
+                list(object_bbox) if object_bbox is not None else None
+            ),
+            "selection_preview_policy": OBJECT_SELECTION_PREVIEW_POLICY,
+            "selection_source_frame_index": tracking.get(
+                "representative_source_frame_index"
+            ),
+            "analysis_frame_width": tracking.get("analysis_frame_width"),
+            "analysis_frame_height": tracking.get("analysis_frame_height"),
+            "tracker_version": tracking.get(
+                "tracker_version", TRACKER_IMPLEMENTATION_VERSION
+            ),
+            "analysis_cache_identity": list(_analysis_cache_identity()),
+        }
         report["registration_prediction"] = _disabled_registration_prediction()
         report["experimental_ridge_prediction"] = _not_requested_experimental_ridge()
         if include_experimental_ridge:
@@ -669,6 +709,7 @@ def _run_uploaded_analysis(
     ridge_identity = _ridge_cache_identity(
         include_experimental_ridge, experimental_ridge_model_bytes
     )
+    analysis_identity = _analysis_cache_identity()
     cached = st.session_state.get("video_analysis_cache")
     if (
         cached
@@ -678,6 +719,7 @@ def _run_uploaded_analysis(
         == include_viewpoint_diversity
         and cached.get("registration_artifact_identity") == STREAMLIT_ML_IDENTITY
         and cached.get("experimental_ridge_identity") == ridge_identity
+        and cached.get("analysis_identity") == analysis_identity
     ):
         return cached
     with st.spinner("Sampling the full timeline and checking quality, overlap and motion…"):
@@ -696,13 +738,14 @@ def _run_uploaded_analysis(
         "include_viewpoint_diversity": include_viewpoint_diversity,
         "registration_artifact_identity": STREAMLIT_ML_IDENTITY,
         "experimental_ridge_identity": ridge_identity,
+        "analysis_identity": analysis_identity,
     }
     st.session_state["video_analysis_cache"] = cached
     return cached
 
 
 def _representative_upload_frame(st: Any, upload: Any) -> Any:
-    """Decode one middle source frame for optional object-box selection."""
+    """Decode the exact uniform sample used to initialize object tracking."""
 
     try:
         import cv2
@@ -711,7 +754,11 @@ def _representative_upload_frame(st: Any, upload: Any) -> Any:
     buffer = upload.getbuffer()
     digest = hashlib.sha256(buffer).hexdigest()
     cached = st.session_state.get("object_selection_preview")
-    if cached and cached.get("digest") == digest:
+    if (
+        cached
+        and cached.get("digest") == digest
+        and cached.get("preview_policy") == OBJECT_SELECTION_PREVIEW_POLICY
+    ):
         return cached["image_rgb"]
     temporary_path = ""
     try:
@@ -724,14 +771,25 @@ def _representative_upload_frame(st: Any, upload: Any) -> Any:
             cap.release()
             raise RuntimeError("Could not decode a representative frame")
         frame_count = max(1, int(round(cap.get(cv2.CAP_PROP_FRAME_COUNT))))
-        cap.set(cv2.CAP_PROP_POS_FRAMES, float((frame_count - 1) // 2))
-        ok, frame = cap.read()
+        config = AnalysisConfig()
+        requested = uniform_sample_indices(frame_count, config.max_samples)
+        representative_position = len(requested) // 2
+        representative_index = requested[representative_position]
+        frame = None
+        for frame_index in range(representative_index + 1):
+            if not cap.grab():
+                break
+            if frame_index == representative_index:
+                ok, frame = cap.retrieve()
+                if not ok:
+                    frame = None
         cap.release()
-        if not ok or frame is None:
-            raise RuntimeError("Could not decode the middle video frame")
-        height, width = frame.shape[:2]
-        if max(height, width) > 720:
-            scale = 720.0 / max(height, width)
+        if frame is None:
+            raise RuntimeError("Could not decode the object-selection sample frame")
+        source_height, source_width = frame.shape[:2]
+        height, width = source_height, source_width
+        if max(height, width) > config.max_analysis_side:
+            scale = config.max_analysis_side / max(height, width)
             frame = cv2.resize(
                 frame,
                 (max(1, round(width * scale)), max(1, round(height * scale))),
@@ -740,7 +798,15 @@ def _representative_upload_frame(st: Any, upload: Any) -> Any:
         image_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         st.session_state["object_selection_preview"] = {
             "digest": digest,
+            "preview_policy": OBJECT_SELECTION_PREVIEW_POLICY,
             "image_rgb": image_rgb,
+            "source_frame_index": representative_index,
+            "representative_sample_position": representative_position,
+            "requested_sample_count": len(requested),
+            "source_width": source_width,
+            "source_height": source_height,
+            "analysis_width": int(frame.shape[1]),
+            "analysis_height": int(frame.shape[0]),
         }
         return image_rgb
     finally:
@@ -861,9 +927,25 @@ def _analysis_view(st: Any) -> None:
                     vertical = st.slider(
                         "Vertical bounds (%)", 0, 100, (10, 90), step=1
                     )
-                    st.caption(
-                        "The preview uses the middle frame. Verify that the box encloses the whole object, including moving parts."
+                    preview_metadata = st.session_state.get(
+                        "object_selection_preview", {}
                     )
+                    preview_index = preview_metadata.get("source_frame_index")
+                    preview_size = (
+                        preview_metadata.get("analysis_width"),
+                        preview_metadata.get("analysis_height"),
+                    )
+                    if preview_index is not None and all(preview_size):
+                        st.caption(
+                            f"This is source frame {preview_index}, resized to "
+                            f"{preview_size[0]}×{preview_size[1]}—the exact uniform "
+                            "sample used to initialize tracking. Verify that the box "
+                            "encloses the complete object, including moving parts."
+                        )
+                    else:
+                        st.caption(
+                            "Verify that the box encloses the complete object, including moving parts."
+                        )
                 if horizontal[1] - horizontal[0] < 5 or vertical[1] - vertical[0] < 5:
                     st.warning("The selected box must cover at least 5% in both dimensions.")
                     return
@@ -891,7 +973,7 @@ def _analysis_view(st: Any) -> None:
                             cv2.rectangle(annotated, start, end, (232, 95, 87), 4)
                             st.image(
                                 annotated,
-                                caption="Representative middle frame with the selected tracking region.",
+                                caption="Exact object-tracker initialization frame and selected region.",
                                 use_container_width=True,
                             )
                         except Exception:
@@ -918,6 +1000,7 @@ def _analysis_view(st: Any) -> None:
     ridge_identity = _ridge_cache_identity(
         include_experimental_ridge, experimental_ridge_model_bytes
     )
+    analysis_identity = _analysis_cache_identity()
     buffer_digest = hashlib.sha256(upload.getbuffer()).hexdigest()
     bbox_key = tuple(object_bbox) if object_bbox is not None else None
     existing = st.session_state.get("video_analysis_cache")
@@ -930,6 +1013,7 @@ def _analysis_view(st: Any) -> None:
         and existing.get("registration_artifact_identity")
         == STREAMLIT_ML_IDENTITY
         and existing.get("experimental_ridge_identity") == ridge_identity
+        and existing.get("analysis_identity") == analysis_identity
     )
     analyze_clicked = st.button(
         "Analyze video",

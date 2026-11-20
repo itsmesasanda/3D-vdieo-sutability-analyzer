@@ -225,6 +225,8 @@ def test_hybrid_tracker_handles_moderate_scale_and_partial_occlusion():
     assert tracking["tracker_version"] == "hybrid_klt_masked_orb_fb_v1"
     assert tracking["tracked_sample_fraction"] >= 0.70
     assert tracking["cycle_verified_step_fraction"] >= 0.70
+    assert len(tracking["sample_statuses"]) == tracking["sample_count"]
+    assert tracking["tracker_settings"]["maximum_consecutive_failures"] == 2
     assert any(
         "klt" in str(step.get("tracker_method"))
         for step in tracking["steps"]

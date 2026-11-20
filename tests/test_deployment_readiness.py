@@ -5,6 +5,7 @@ import pytest
 import app
 from video_suitability.config import AnalysisConfig
 from video_suitability.infer import analyze_video
+from video_suitability.video import uniform_sample_indices
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -66,6 +67,69 @@ def test_upload_limit_is_checked_before_temp_file_write():
 
     with pytest.raises(ValueError, match="150 MB deployment limit"):
         app._analyze_upload_payload(OversizedBuffer(), "large.mp4")
+
+
+def test_object_selection_preview_matches_tracker_initialization_sample(
+    synthetic_videos,
+):
+    class Upload:
+        def __init__(self, path):
+            self.name = path.name
+            self._data = path.read_bytes()
+
+        def getbuffer(self):
+            return self._data
+
+    class StreamlitState:
+        session_state = {}
+
+    import cv2
+
+    video = synthetic_videos["quarter_orbit"]
+    upload = Upload(video)
+    st = StreamlitState()
+    preview = app._representative_upload_frame(st, upload)
+    metadata = st.session_state["object_selection_preview"]
+    capture = cv2.VideoCapture(str(video))
+    frame_count = int(round(capture.get(cv2.CAP_PROP_FRAME_COUNT)))
+    capture.release()
+    requested = uniform_sample_indices(frame_count, AnalysisConfig().max_samples)
+
+    assert metadata["source_frame_index"] == requested[len(requested) // 2]
+    assert metadata["preview_policy"] == app.OBJECT_SELECTION_PREVIEW_POLICY
+    assert list(preview.shape[:2][::-1]) == [
+        metadata["analysis_width"],
+        metadata["analysis_height"],
+    ]
+    assert max(preview.shape[:2]) <= AnalysisConfig().max_analysis_side
+
+
+def test_upload_report_records_tracker_input_and_runtime_provenance(
+    synthetic_videos,
+):
+    video = synthetic_videos["quarter_orbit"]
+    bbox = [0.20, 0.10, 0.60, 0.80]
+    result = app._analyze_upload_payload(
+        video.read_bytes(),
+        video.name,
+        object_bbox=bbox,
+        include_viewpoint_diversity=True,
+    )
+    report = result["report"]
+    tracking = report["viewpoint_diversity"]["object_tracking"]
+    upload = report["streamlit_input_provenance"]
+
+    assert upload["selected_object_bbox_normalized"] == bbox
+    assert upload["selection_source_frame_index"] == tracking[
+        "representative_source_frame_index"
+    ]
+    assert upload["analysis_frame_width"] == tracking["analysis_frame_width"]
+    assert upload["analysis_frame_height"] == tracking["analysis_frame_height"]
+    assert upload["tracker_version"] == tracking["tracker_version"]
+    assert len(upload["video_sha256"]) == 64
+    assert len(report["runtime_provenance"]["object_tracker_source_sha256"]) == 64
+    assert len(tracking["sample_statuses"]) == tracking["sample_count"]
+    assert tracking["tracker_settings"]["cycle_iou_minimum"] == 0.40
 
 
 def test_experimental_viewpoint_failure_does_not_break_heuristic(
