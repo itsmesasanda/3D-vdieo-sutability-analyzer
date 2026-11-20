@@ -80,6 +80,13 @@ reconstruction status. Top-level outputs are:
 COLMAP is not installed on the current local machine. Run these cells in a fresh
 Google Colab CPU runtime after the implementation is pushed to GitHub.
 
+For the minimal executable workflow, upload and run
+`notebooks/independent_ridge_colmap_validation_colab.ipynb`. It clones the latest
+committed `main` branch, verifies the pinned Ridge artifact and feature parity,
+generates the documented manifest, invokes the existing validation CLI unchanged,
+and synchronizes concise evidence to `MyDrive/validation/results/`. The manual cells
+below remain as a command-level reference.
+
 ```python
 !apt-get update -qq
 !DEBIAN_FRONTEND=noninteractive apt-get install -y -qq colmap

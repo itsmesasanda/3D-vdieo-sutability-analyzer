@@ -1,5 +1,36 @@
 # Project status
 
+## Independent Ridge/COLMAP Colab runner (2026-11-20)
+
+Added `notebooks/independent_ridge_colmap_validation_colab.ipynb`, a CPU-only thin
+wrapper around the existing `scripts/ml/validate_independent_ridge_colmap.py`. It
+clones committed `main`, installs and verifies COLMAP/Python dependencies, mounts
+Drive, verifies the pinned Ridge model hash and saved prediction parity, resolves
+the three diagnostic video roles, and creates the documented `video_id,role,video_path`
+manifest. The unchanged validator remains responsible for the frozen 60-JPEG
+adapter, Ridge inference, COLMAP execution, reconstruction-status classification,
+CSV/report generation, and valid-only MAE.
+
+Large prepared images, databases, sparse models and point clouds remain in Colab
+scratch space. CSV, Markdown, JSON, COLMAP logs and the console log are synchronized
+periodically to a timestamped `MyDrive/validation/results/` directory and packaged
+as a small evidence ZIP. Setup and per-video failures are shown explicitly.
+
+Verification commands and results:
+
+```bash
+PYTHONPYCACHEPREFIX=/private/tmp/video-suitability-pycache .venv/bin/python - <<'PY'
+# Loaded notebook JSON and parsed every code cell with ast.parse.
+PY
+.venv/bin/python -m pytest -q \
+  tests/test_independent_ridge_validation_colab_notebook.py \
+  tests/test_independent_ridge_validation.py
+```
+
+Observed: notebook JSON was valid, all eight cells parsed, and `7 passed in 0.04s`.
+COLMAP was not run locally; actual predictions and registration counts will exist
+only after running the notebook with the independent Drive videos in Colab.
+
 ## Rice-cooker tracker reproducibility fix (2026-11-20)
 
 The inconsistent 100%, 50%, and 16% object-tracking reports were investigated on
